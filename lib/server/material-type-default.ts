@@ -1,4 +1,5 @@
 import type { createClient } from '@/lib/supabase/server'
+import { inferTypePrefixFromText } from '@/lib/material-code'
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -21,6 +22,11 @@ export async function resolveMaterialTypeForCode(
     categoryId: string
     materialTypeId?: string | null
     createDefault?: boolean
+    matNameEn?: string | null
+    matNameTh?: string | null
+    spec?: string | null
+    brand?: string | null
+    model?: string | null
   },
 ): Promise<{
   materialType: ResolvedMaterialTypeForCode | null
@@ -57,7 +63,14 @@ export async function resolveMaterialTypeForCode(
     materialType: {
       id: null,
       category_id: input.categoryId,
-      code_prefix: DEFAULT_TYPE_PREFIX,
+      code_prefix: inferTypePrefixFromText({
+        matNameEn: input.matNameEn,
+        matNameTh: input.matNameTh,
+        spec: input.spec,
+        brand: input.brand,
+        model: input.model,
+        fallback: DEFAULT_TYPE_PREFIX,
+      }),
       name: DEFAULT_TYPE_NAME,
       description: DEFAULT_TYPE_DESCRIPTION,
       is_active: true,

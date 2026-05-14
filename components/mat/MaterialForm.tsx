@@ -6,7 +6,7 @@ import type { MatCategory, MatMaster, MatUom, MaterialType } from '@/types/mat'
 import type { CreateMaterialInput } from '@/lib/validations/material'
 import { createMaterialSchema } from '@/lib/validations/material'
 import { getMaterialCode, getMaterialRouteId } from '@/lib/material-master'
-import { inferSpecKeyFromText, sanitizeSpecKey } from '@/lib/material-code'
+import { inferSpecKeyFromText, inferTypePrefixFromText, sanitizeSpecKey } from '@/lib/material-code'
 
 interface MaterialFormProps {
   material?: MatMaster
@@ -68,6 +68,17 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     [materialTypes, form.material_type_id],
   )
 
+  const inferredTypePrefix = useMemo(
+    () => inferTypePrefixFromText({
+      matNameEn: form.mat_name_en,
+      matNameTh: form.mat_name_th,
+      spec: form.spec,
+      brand: form.brand,
+      model: form.model,
+    }),
+    [form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model],
+  )
+
   useEffect(() => {
     if (mode !== 'create' || !form.cat_id) {
       setCodePreview('')
@@ -84,7 +95,12 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           body: JSON.stringify({
             cat_id: form.cat_id,
             material_type_id: form.material_type_id || undefined,
-            spec_key: form.code_spec_key || form.spec || 'GEN',
+            spec_key: form.code_spec_key || undefined,
+            mat_name_en: form.mat_name_en,
+            mat_name_th: form.mat_name_th,
+            spec: form.spec,
+            brand: form.brand,
+            model: form.model,
           }),
           signal: controller.signal,
         })
@@ -103,7 +119,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [form.cat_id, form.material_type_id, form.code_spec_key, form.spec, mode])
+  }, [form.cat_id, form.material_type_id, form.code_spec_key, form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model, mode])
 
   function handleCategoryChange(catId: string) {
     const category = categories.find((item) => item.cat_id === catId)
@@ -227,12 +243,12 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           </select>
           {selectedCategory && availableTypes.length === 0 && (
             <p className="mt-1 text-xs text-amber-600">
-              ยังไม่มีชนิดวัสดุในหมวดนี้ ระบบจะใช้ GEN ให้ก่อน
+              ยังไม่มีชนิดวัสดุในหมวดนี้ ระบบจะเดา Type จากชื่ออังกฤษ ถ้าเดาไม่ได้จะใช้ GEN
             </p>
           )}
           {selectedCategory && availableTypes.length > 0 && !form.material_type_id && (
             <p className="mt-1 text-xs text-slate-400">
-              ไม่เลือกได้ ระบบจะใช้ GEN สำหรับวัสดุทั่วไป
+              ไม่เลือกได้ ระบบจะเดา Type จากชื่ออังกฤษ เช่น Thinner = THN
             </p>
           )}
         </Field>
@@ -246,7 +262,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
             className={`${inputCls(!!fieldErrors.code_spec_key)} font-mono`}
           />
           <p className="mt-1 text-xs text-slate-400">
-            หมวดหมู่ {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? 'GEN'}
+            หมวดหมู่ {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? inferredTypePrefix}
           </p>
         </Field>
 

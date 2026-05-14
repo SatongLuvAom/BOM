@@ -3,14 +3,19 @@ import { z } from 'zod'
 import { requireOwnerApi } from '@/lib/auth/owner'
 import { createClient } from '@/lib/supabase/server'
 import { databaseError, validationError } from '@/lib/api/responses'
-import { sanitizeSpecKey } from '@/lib/material-code'
+import { inferSpecKeyFromMaterialText, sanitizeSpecKey } from '@/lib/material-code'
 import { resolveMaterialTypeForCode } from '@/lib/server/material-type-default'
 
 const previewSchema = z.object({
   cat_id: z.string().optional(),
   category_id: z.string().optional(),
   material_type_id: z.string().optional(),
-  spec_key: z.string().optional().default('GEN'),
+  spec_key: z.string().optional(),
+  mat_name_en: z.string().optional(),
+  mat_name_th: z.string().optional(),
+  spec: z.string().optional(),
+  brand: z.string().optional(),
+  model: z.string().optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -23,7 +28,13 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createClient()
   const input = parsed.data
-  const specKey = sanitizeSpecKey(input.spec_key)
+  const specKey = sanitizeSpecKey(input.spec_key || inferSpecKeyFromMaterialText({
+    spec: input.spec,
+    matNameEn: input.mat_name_en,
+    matNameTh: input.mat_name_th,
+    brand: input.brand,
+    model: input.model,
+  }))
 
   let category: { id: string; cat_id: string; cat_code: string; code_prefix: string | null } | null = null
   let materialType: { id: string | null; category_id: string; code_prefix: string; name: string } | null = null
@@ -85,6 +96,11 @@ export async function POST(req: NextRequest) {
     const resolvedType = await resolveMaterialTypeForCode(supabase, {
       categoryId: category.id,
       createDefault: false,
+      matNameEn: input.mat_name_en,
+      matNameTh: input.mat_name_th,
+      spec: input.spec,
+      brand: input.brand,
+      model: input.model,
     })
 
     if (resolvedType.error) {

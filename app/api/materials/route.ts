@@ -8,7 +8,7 @@ import { buildNormalizedMaterialName } from '@/lib/material-master'
 import { normalizeSearchTerm } from '@/lib/supabase/filters'
 import { resolveMaterialSearchMatches, sortRowsBySearchRank } from '@/lib/server/material-search'
 import { databaseError, duplicateError, validationError } from '@/lib/api/responses'
-import { sanitizeSpecKey } from '@/lib/material-code'
+import { inferSpecKeyFromMaterialText, sanitizeSpecKey } from '@/lib/material-code'
 import { resolveMaterialTypeForCode } from '@/lib/server/material-type-default'
 import { generateMaterialCodeForCreate, getNextMaterialCodeFromExistingRows } from '@/lib/server/material-code-generator'
 
@@ -126,7 +126,13 @@ export async function POST(req: NextRequest) {
 
   const input = parsed.data
   const materialTypeId = String(input.material_type_id ?? '').trim()
-  const codeSpecKey = sanitizeSpecKey(input.code_spec_key || input.spec || 'GEN')
+  const codeSpecKey = sanitizeSpecKey(input.code_spec_key || inferSpecKeyFromMaterialText({
+    spec: input.spec,
+    matNameEn: input.mat_name_en,
+    matNameTh: input.mat_name_th,
+    brand: input.brand,
+    model: input.model,
+  }))
 
   // Duplicate check: same name + spec + cat
   const { data: existing } = await supabase
@@ -160,6 +166,11 @@ export async function POST(req: NextRequest) {
     categoryId: cat.id,
     materialTypeId,
     createDefault: false,
+    matNameEn: input.mat_name_en,
+    matNameTh: input.mat_name_th,
+    spec: input.spec,
+    brand: input.brand,
+    model: input.model,
   })
 
   if (resolvedType.error) {
