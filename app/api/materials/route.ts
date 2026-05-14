@@ -9,6 +9,7 @@ import { normalizeSearchTerm } from '@/lib/supabase/filters'
 import { resolveMaterialSearchMatches, sortRowsBySearchRank } from '@/lib/server/material-search'
 import { databaseError, duplicateError, validationError } from '@/lib/api/responses'
 import { sanitizeSpecKey } from '@/lib/material-code'
+import { resolveMaterialTypeForCode } from '@/lib/server/material-type-default'
 
 type MaterialSortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
 
@@ -126,10 +127,6 @@ export async function POST(req: NextRequest) {
   const materialTypeId = String(input.material_type_id ?? '').trim()
   const codeSpecKey = sanitizeSpecKey(input.code_spec_key || input.spec || 'GEN')
 
-  if (!materialTypeId) {
-    return validationError({ material_type_id: ['Material type is required for Material Code Standard v1'] })
-  }
-
   // Duplicate check: same name + spec + cat
   const { data: existing } = await supabase
     .from('mat_master')
@@ -158,20 +155,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ไม่พบหมวดหมู่' }, { status: 400 })
   }
 
-  const { data: materialType, error: materialTypeError } = await supabase
-    .from('material_types')
-    .select('id, category_id, code_prefix, name')
-    .eq('id', materialTypeId)
-    .eq('category_id', cat.id)
-    .eq('is_active', true)
-    .maybeSingle()
+  const resolvedType = await resolveMaterialTypeForCode(supabase, {
+    categoryId: cat.id,
+    materialTypeId,
+    createDefault: true,
+  })
 
-  if (materialTypeError) {
-    return databaseError('Could not validate material type', { message: materialTypeError.message })
+  if (resolvedType.error) {
+    if (resolvedType.error.kind === 'validation') {
+      return validationError({ material_type_id: [resolvedType.error.message] })
+    }
+    return databaseError('Could not validate material type', { message: resolvedType.error.message })
   }
 
-  if (!materialType) {
-    return validationError({ material_type_id: ['Material type does not belong to selected category'] })
+  const materialType = resolvedType.materialType
+
+  if (!materialType?.id) {
+    return databaseError('Could not resolve default material type')
+  }
+
+  if (resolvedType.createdDefault) {
+    await writeAuditLog({
+      entityType: 'material_types',
+      entityKey: materialType.id,
+      action: 'CREATE',
+      payload: materialType,
+      createdBy: owner.id,
+    })
   }
 
   const { data: uom } = await supabase

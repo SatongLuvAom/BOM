@@ -69,7 +69,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
   )
 
   useEffect(() => {
-    if (mode !== 'create' || !form.material_type_id) {
+    if (mode !== 'create' || !form.cat_id) {
       setCodePreview('')
       return
     }
@@ -83,7 +83,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             cat_id: form.cat_id,
-            material_type_id: form.material_type_id,
+            material_type_id: form.material_type_id || undefined,
             spec_key: form.code_spec_key || form.spec || 'GEN',
           }),
           signal: controller.signal,
@@ -209,14 +209,16 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           </select>
         </Field>
 
-        <Field label="Material type *" error={fieldErrors.material_type_id}>
+        <Field label="ชนิดวัสดุ" error={fieldErrors.material_type_id}>
           <select
             value={form.material_type_id ?? ''}
             onChange={(e) => set('material_type_id', e.target.value)}
             className={inputCls(!!fieldErrors.material_type_id)}
             disabled={!form.cat_id}
           >
-            <option value="">- Select material type -</option>
+            <option value="">
+              {form.cat_id ? 'GEN — ทั่วไป / ไม่ระบุชนิด' : '- เลือกหมวดหมู่ก่อน -'}
+            </option>
             {availableTypes.map((type) => (
               <option key={type.id} value={type.id}>
                 [{type.code_prefix}] {type.name}
@@ -225,21 +227,26 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           </select>
           {selectedCategory && availableTypes.length === 0 && (
             <p className="mt-1 text-xs text-amber-600">
-              No material types configured for {selectedCategory.cat_code}. Add them in Material Code Settings.
+              ยังไม่มีชนิดวัสดุในหมวดนี้ ระบบจะใช้ GEN ให้อัตโนมัติก่อน
+            </p>
+          )}
+          {selectedCategory && availableTypes.length > 0 && !form.material_type_id && (
+            <p className="mt-1 text-xs text-slate-400">
+              ไม่เลือกได้ ระบบจะใช้ GEN สำหรับวัสดุทั่วไป
             </p>
           )}
         </Field>
 
-        <Field label="Code spec key *" error={fieldErrors.code_spec_key}>
+        <Field label="Spec key ของรหัส" error={fieldErrors.code_spec_key}>
           <input
             type="text"
             value={form.code_spec_key ?? ''}
             onChange={(e) => set('code_spec_key', sanitizeSpecKey(e.target.value))}
-            placeholder="006, 030W, W1000, GEN"
+            placeholder="ไม่ใส่ = GEN, เช่น 006, 030W, W1000"
             className={`${inputCls(!!fieldErrors.code_spec_key)} font-mono`}
           />
           <p className="mt-1 text-xs text-slate-400">
-            Category {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? '-'}
+            หมวดหมู่ {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? 'GEN'}
           </p>
         </Field>
 
