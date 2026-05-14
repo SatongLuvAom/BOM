@@ -95,7 +95,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           body: JSON.stringify({
             cat_id: form.cat_id,
             material_type_id: form.material_type_id || undefined,
-            spec_key: form.code_spec_key || undefined,
+            spec_key: form.code_spec_key && form.code_spec_key !== 'GEN' ? form.code_spec_key : undefined,
             mat_name_en: form.mat_name_en,
             mat_name_th: form.mat_name_th,
             spec: form.spec,
@@ -136,7 +136,9 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     setForm((current) => ({
       ...current,
       spec: value,
-      code_spec_key: current.code_spec_key || inferSpecKeyFromText(value),
+      code_spec_key: mode === 'create' && (!current.code_spec_key || current.code_spec_key === 'GEN')
+        ? inferSpecKeyFromText(value)
+        : current.code_spec_key,
     }))
     setFieldErrors((e) => ({ ...e, spec: '', code_spec_key: '' }))
   }

@@ -28,13 +28,17 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createClient()
   const input = parsed.data
-  const specKey = sanitizeSpecKey(input.spec_key || inferSpecKeyFromMaterialText({
+  const submittedSpecKey = input.spec_key ? sanitizeSpecKey(input.spec_key) : ''
+  const inferredSpecKey = inferSpecKeyFromMaterialText({
     spec: input.spec,
     matNameEn: input.mat_name_en,
     matNameTh: input.mat_name_th,
     brand: input.brand,
     model: input.model,
-  }))
+  })
+  const specKey = submittedSpecKey && submittedSpecKey !== 'GEN'
+    ? submittedSpecKey
+    : inferredSpecKey
 
   let category: { id: string; cat_id: string; cat_code: string; code_prefix: string | null } | null = null
   let materialType: { id: string | null; category_id: string; code_prefix: string; name: string } | null = null

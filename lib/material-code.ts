@@ -131,7 +131,7 @@ const TYPE_RULES: Array<{ prefix: string; pattern: RegExp }> = [
   { prefix: 'EDG', pattern: /\bEDGE\s*BAND|\bEDGEBAND/i },
   { prefix: 'FILM', pattern: /\bFILM\b/i },
   { prefix: 'MEL', pattern: /\bMELAMINE\b|\bMEL\b/i },
-  { prefix: 'THN', pattern: /\bTHINNER\b|\bTHINER\b|\bTHN\b/i },
+  { prefix: 'THN', pattern: /\bTHINNER\b|\bTHINER\b|\bTINNER\b|\bTINER\b|\bTHN\b/i },
   { prefix: 'PRM', pattern: /\bPRIMER\b|\bPRM\b/i },
   { prefix: 'PUT', pattern: /\bPUTTY\b|\bFILLER\b/i },
   { prefix: 'SPR', pattern: /\bSPRAY\b|\bAEROSOL\b/i },

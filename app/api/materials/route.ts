@@ -126,13 +126,17 @@ export async function POST(req: NextRequest) {
 
   const input = parsed.data
   const materialTypeId = String(input.material_type_id ?? '').trim()
-  const codeSpecKey = sanitizeSpecKey(input.code_spec_key || inferSpecKeyFromMaterialText({
+  const submittedSpecKey = input.code_spec_key ? sanitizeSpecKey(input.code_spec_key) : ''
+  const inferredSpecKey = inferSpecKeyFromMaterialText({
     spec: input.spec,
     matNameEn: input.mat_name_en,
     matNameTh: input.mat_name_th,
     brand: input.brand,
     model: input.model,
-  }))
+  })
+  const codeSpecKey = submittedSpecKey && submittedSpecKey !== 'GEN'
+    ? submittedSpecKey
+    : inferredSpecKey
 
   // Duplicate check: same name + spec + cat
   const { data: existing } = await supabase
