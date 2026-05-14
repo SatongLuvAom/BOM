@@ -10,6 +10,7 @@ import { resolveMaterialSearchMatches, sortRowsBySearchRank } from '@/lib/server
 import { databaseError, duplicateError, validationError } from '@/lib/api/responses'
 import { sanitizeSpecKey } from '@/lib/material-code'
 import { resolveMaterialTypeForCode } from '@/lib/server/material-type-default'
+import { generateMaterialCodeForCreate, getNextMaterialCodeFromExistingRows } from '@/lib/server/material-code-generator'
 
 type MaterialSortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
 
@@ -185,27 +186,58 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ไม่พบหน่วยนับ' }, { status: 400 })
   }
 
-  const { data: generatedCode, error: generateError } = await supabase.rpc('fn_generate_material_code_v1', {
-    p_category_prefix: cat.code_prefix ?? cat.cat_code,
-    p_type_prefix: materialType.code_prefix,
-    p_spec_key: codeSpecKey,
+  const generatedCode = await generateMaterialCodeForCreate(supabase, {
+    categoryPrefix: cat.code_prefix ?? cat.cat_code,
+    typePrefix: materialType.code_prefix,
+    specKey: codeSpecKey,
   })
 
-  if (generateError || !generatedCode) {
+  if (!generatedCode.data) {
     return databaseError('Could not generate material code. Run the Material Code Standard v1 SQL migration first.', {
-      message: generateError?.message,
+      message: generatedCode.error ?? undefined,
     })
   }
 
-  const materialCode = String(generatedCode)
+  let materialCode = generatedCode.data.code
+  let nextNo = generatedCode.data.nextNo
 
-  const { data: codeExisting } = await supabase
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const { data: codeExisting, error: codeCheckError } = await supabase
+      .from('mat_master')
+      .select('material_id, material_code')
+      .eq('material_code', materialCode)
+      .limit(1)
+
+    if (codeCheckError) {
+      return databaseError('Could not validate material code uniqueness', { message: codeCheckError.message })
+    }
+
+    if (!codeExisting || codeExisting.length === 0) {
+      break
+    }
+
+    const fallbackCode = await getNextMaterialCodeFromExistingRows(supabase, {
+      categoryPrefix: generatedCode.data.categoryPrefix,
+      typePrefix: generatedCode.data.typePrefix,
+      specKey: generatedCode.data.specKey,
+      minNo: nextNo + 1,
+    })
+
+    if (!fallbackCode.data) {
+      return databaseError('Could not generate fallback material code', { message: fallbackCode.error ?? undefined })
+    }
+
+    materialCode = fallbackCode.data.code
+    nextNo = fallbackCode.data.nextNo
+  }
+
+  const { data: duplicateAfterRetry } = await supabase
     .from('mat_master')
-    .select('material_id, material_code')
+    .select('material_id')
     .eq('material_code', materialCode)
     .limit(1)
 
-  if (codeExisting && codeExisting.length > 0) {
+  if (duplicateAfterRetry && duplicateAfterRetry.length > 0) {
     return duplicateError(`Material code "${materialCode}" already exists`)
   }
 
