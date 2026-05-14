@@ -227,7 +227,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           </select>
           {selectedCategory && availableTypes.length === 0 && (
             <p className="mt-1 text-xs text-amber-600">
-              ยังไม่มีชนิดวัสดุในหมวดนี้ ระบบจะใช้ GEN ให้อัตโนมัติก่อน
+              ยังไม่มีชนิดวัสดุในหมวดนี้ ระบบจะใช้ GEN ให้ก่อน
             </p>
           )}
           {selectedCategory && availableTypes.length > 0 && !form.material_type_id && (

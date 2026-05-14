@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
   const resolvedType = await resolveMaterialTypeForCode(supabase, {
     categoryId: cat.id,
     materialTypeId,
-    createDefault: true,
+    createDefault: false,
   })
 
   if (resolvedType.error) {
@@ -170,18 +170,8 @@ export async function POST(req: NextRequest) {
 
   const materialType = resolvedType.materialType
 
-  if (!materialType?.id) {
-    return databaseError('Could not resolve default material type')
-  }
-
-  if (resolvedType.createdDefault) {
-    await writeAuditLog({
-      entityType: 'material_types',
-      entityKey: materialType.id,
-      action: 'CREATE',
-      payload: materialType,
-      createdBy: owner.id,
-    })
+  if (!materialType) {
+    return databaseError('Could not resolve material type fallback')
   }
 
   const { data: uom } = await supabase
@@ -233,7 +223,7 @@ export async function POST(req: NextRequest) {
       normalized_name,
       category_id: cat.id,
       base_uom_id: uom.id,
-      material_type_id: materialType.id,
+      material_type_id: materialType.id ?? null,
       code_spec_key: codeSpecKey,
       code_locked: true,
       code_generated_at: new Date().toISOString(),

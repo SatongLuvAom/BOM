@@ -53,66 +53,16 @@ export async function resolveMaterialTypeForCode(
     return { materialType: data, createdDefault: false, error: null }
   }
 
-  const { data: existing, error: existingError } = await supabase
-    .from('material_types')
-    .select('id, category_id, code_prefix, name, description, is_active')
-    .eq('category_id', input.categoryId)
-    .eq('code_prefix', DEFAULT_TYPE_PREFIX)
-    .maybeSingle()
-
-  if (existingError) {
-    return { materialType: null, createdDefault: false, error: { kind: 'database', message: existingError.message } }
-  }
-
-  if (existing) {
-    return { materialType: existing, createdDefault: false, error: null }
-  }
-
-  if (!input.createDefault) {
-    return {
-      materialType: {
-        id: null,
-        category_id: input.categoryId,
-        code_prefix: DEFAULT_TYPE_PREFIX,
-        name: DEFAULT_TYPE_NAME,
-        description: DEFAULT_TYPE_DESCRIPTION,
-        is_active: true,
-      },
-      createdDefault: false,
-      error: null,
-    }
-  }
-
-  const { data: created, error: createError } = await supabase
-    .from('material_types')
-    .insert({
+  return {
+    materialType: {
+      id: null,
       category_id: input.categoryId,
-      name: DEFAULT_TYPE_NAME,
       code_prefix: DEFAULT_TYPE_PREFIX,
+      name: DEFAULT_TYPE_NAME,
       description: DEFAULT_TYPE_DESCRIPTION,
       is_active: true,
-    })
-    .select('id, category_id, code_prefix, name, description, is_active')
-    .single()
-
-  if (createError) {
-    if (createError.code === '23505') {
-      const { data: racedDefault, error: racedError } = await supabase
-        .from('material_types')
-        .select('id, category_id, code_prefix, name, description, is_active')
-        .eq('category_id', input.categoryId)
-        .eq('code_prefix', DEFAULT_TYPE_PREFIX)
-        .maybeSingle()
-
-      if (racedError) {
-        return { materialType: null, createdDefault: false, error: { kind: 'database', message: racedError.message } }
-      }
-
-      return { materialType: racedDefault, createdDefault: false, error: null }
-    }
-
-    return { materialType: null, createdDefault: false, error: { kind: 'database', message: createError.message } }
+    },
+    createdDefault: false,
+    error: null,
   }
-
-  return { materialType: created, createdDefault: true, error: null }
 }
