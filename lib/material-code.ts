@@ -179,6 +179,49 @@ const TYPE_RULES: Array<{ prefix: string; pattern: RegExp }> = [
   { prefix: 'ELBOW', pattern: /\bELBOW\b/i },
 ]
 
+const THAI_TYPE_RULES: Array<{ prefix: string; pattern: RegExp }> = [
+  { prefix: 'HMR', pattern: /ไม้\s*HMR|เอชเอ็มอาร์/i },
+  { prefix: 'MDF', pattern: /ไม้\s*MDF|เอ็มดีเอฟ/i },
+  { prefix: 'PLY', pattern: /ไม้อัด|plywood/i },
+  { prefix: 'PB', pattern: /ปาร์ติเกิล|particle/i },
+  { prefix: 'OSB', pattern: /ไม้\s*OSB|โอเอสบี/i },
+  { prefix: 'BOX', pattern: /เหล็กกล่อง|กล่องเหล็ก|แป๊บเหลี่ยม|แป๊ปเหลี่ยม/i },
+  { prefix: 'PIPE', pattern: /ท่อ|แป๊บกลม|แป๊ปกลม/i },
+  { prefix: 'ANGLE', pattern: /เหล็กฉาก/i },
+  { prefix: 'FLAT', pattern: /เหล็กแบน/i },
+  { prefix: 'SHEET', pattern: /แผ่น|ชีท|เพลท/i },
+  { prefix: 'THN', pattern: /ทินเนอร์|ทินเนอ|thinner|tinner/i },
+  { prefix: 'PRM', pattern: /รองพื้น|ไพรเมอร์|primer/i },
+  { prefix: 'PUT', pattern: /โป๊ว|โป้ว|putty|filler/i },
+  { prefix: 'SPR', pattern: /สเปรย์|spray/i },
+  { prefix: 'ACR', pattern: /สีอะคริลิค|อะคริลิคเพ้นท์|acrylic\s*paint/i },
+  { prefix: 'OIL', pattern: /สีน้ำมัน|oil\s*paint/i },
+  { prefix: 'SPOT', pattern: /สปอร์ตไลท์|ไฟสปอร์ต|ดาวน์ไลท์|downlight|spot/i },
+  { prefix: 'STRIP', pattern: /ไฟเส้น|แอลอีดีเส้น|LED\s*strip/i },
+  { prefix: 'PSU', pattern: /เพาเวอร์ซัพพลาย|พาวเวอร์ซัพพลาย|หม้อแปลง|driver/i },
+  { prefix: 'WIRE', pattern: /สายไฟ|สายเคเบิล|wire|cable/i },
+  { prefix: 'PLUG', pattern: /ปลั๊ก|เต้ารับ|plug|socket/i },
+  { prefix: 'SW', pattern: /สวิตช์|switch/i },
+  { prefix: 'HINGE', pattern: /บานพับ|hinge/i },
+  { prefix: 'HANDLE', pattern: /มือจับ|handle/i },
+  { prefix: 'SCREW', pattern: /สกรู|น็อต|น๊อต|screw|bolt/i },
+  { prefix: 'LOCK', pattern: /กุญแจ|ตัวล็อก|lock/i },
+  { prefix: 'RUNNER', pattern: /รางลิ้นชัก|รางสไลด์|runner|slide/i },
+  { prefix: 'BRKT', pattern: /ฉากรับ|ขายึด|bracket/i },
+  { prefix: 'ACRY', pattern: /กาว.*อะคริลิค|อะคริลิค.*กาว/i },
+  { prefix: 'ACR', pattern: /แผ่นอะคริลิค|อะคริลิค|acrylic/i },
+  { prefix: 'GLS', pattern: /กระจก|glass/i },
+  { prefix: 'MIR', pattern: /กระจกเงา|mirror/i },
+  { prefix: 'HPL', pattern: /HPL|ลามิเนตแรงดัน|ไฮเพรส/i },
+  { prefix: 'LAM', pattern: /ลามิเนต|laminate/i },
+  { prefix: 'EDG', pattern: /ปิดขอบ|คิ้วปิดขอบ|edge/i },
+  { prefix: 'GLUE', pattern: /กาว|glue|adhesive/i },
+  { prefix: 'SIL', pattern: /ซิลิโคน|ซีลแลนท์|silicone|sealant/i },
+  { prefix: 'TAPE', pattern: /เทป|tape/i },
+  { prefix: 'FABRIC', pattern: /ผ้า|fabric/i },
+  { prefix: 'FOAM', pattern: /โฟม|foam/i },
+]
+
 export function inferTypePrefixFromText(input: {
   matNameEn?: string | null
   matNameTh?: string | null
@@ -194,6 +237,10 @@ export function inferTypePrefixFromText(input: {
     input.model,
     input.brand,
   ])
+
+  for (const rule of THAI_TYPE_RULES) {
+    if (rule.pattern.test(text)) return sanitizeTypePrefix(rule.prefix)
+  }
 
   for (const rule of TYPE_RULES) {
     if (rule.pattern.test(text)) return sanitizeTypePrefix(rule.prefix)

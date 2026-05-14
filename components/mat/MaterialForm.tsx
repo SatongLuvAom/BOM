@@ -17,6 +17,24 @@ interface MaterialFormProps {
   mode: 'create' | 'edit'
 }
 
+type DuplicateWarning = {
+  material_id: string
+  route_id: string
+  material_code: string | null
+  mat_name_th: string | null
+  mat_name_en: string | null
+  category_name: string | null
+  material_type_label: string | null
+  code_spec_key: string | null
+  spec: string | null
+  brand: string | null
+  model: string | null
+  score: number
+  confidence_level: 'HIGH' | 'MEDIUM' | 'LOW'
+  recommended_action: string
+  matched_reasons: { key: string; label: string; points: number; detail?: string }[]
+}
+
 const STATUS_OPTIONS = [
   { value: 'ACTIVE',       label: 'ใช้งาน' },
   { value: 'INACTIVE',     label: 'ปิดใช้งาน' },
@@ -33,6 +51,10 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
   const [codePreview, setCodePreview] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
   const [specKeyTouched, setSpecKeyTouched] = useState(!isCreate && Boolean(material?.code_spec_key))
+  const [typeTouched, setTypeTouched] = useState(!isCreate && Boolean(material?.material_type_id))
+  const [duplicateWarnings, setDuplicateWarnings] = useState<DuplicateWarning[]>([])
+  const [duplicateCheckLoading, setDuplicateCheckLoading] = useState(false)
+  const [duplicateCheckError, setDuplicateCheckError] = useState('')
 
   const [form, setForm] = useState<CreateMaterialInput>({
     material_code: material ? getMaterialCode(material) : '',
@@ -83,6 +105,14 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     [form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model],
   )
 
+  const suggestedType = useMemo(() => {
+    if (!selectedCategory || inferredTypePrefix === 'GEN') return null
+
+    return availableTypes.find((type) => (
+      type.code_prefix.toUpperCase() === inferredTypePrefix
+    )) ?? null
+  }, [availableTypes, inferredTypePrefix, selectedCategory])
+
   const specKeySuggestion = useMemo(() => {
     const explicitSpec = String(form.spec ?? '').trim()
     if (explicitSpec) {
@@ -107,6 +137,17 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         : { ...current, code_spec_key: specKeySuggestion }
     ))
   }, [form.code_spec_key, isCreate, specKeySuggestion, specKeyTouched])
+
+  useEffect(() => {
+    if (!isCreate || typeTouched || form.material_type_id || !suggestedType) return
+
+    setForm((current) => (
+      current.material_type_id
+        ? current
+        : { ...current, material_type_id: suggestedType.id }
+    ))
+    setFieldErrors((e) => ({ ...e, material_type_id: '' }))
+  }, [form.material_type_id, isCreate, suggestedType, typeTouched])
 
   useEffect(() => {
     if (!isCreate || !form.cat_id) {
@@ -152,8 +193,76 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     }
   }, [form.cat_id, form.material_type_id, form.code_spec_key, form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model, isCreate])
 
+  useEffect(() => {
+    const hasName = form.mat_name_th.trim().length >= 2 || form.mat_name_en.trim().length >= 2
+    if (!isCreate || !form.cat_id || !hasName) {
+      setDuplicateWarnings([])
+      setDuplicateCheckError('')
+      setDuplicateCheckLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setDuplicateCheckLoading(true)
+      setDuplicateCheckError('')
+      try {
+        const res = await fetch('/api/materials/duplicate-candidates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cat_id: form.cat_id,
+            category_id: form.category_id,
+            material_type_id: form.material_type_id || undefined,
+            code_spec_key: form.code_spec_key || undefined,
+            mat_name_th: form.mat_name_th,
+            mat_name_en: form.mat_name_en,
+            spec: form.spec,
+            brand: form.brand,
+            model: form.model,
+            base_uom: form.base_uom,
+            base_uom_id: form.base_uom_id,
+            limit: 5,
+          }),
+          signal: controller.signal,
+        })
+        const json = await res.json()
+        if (!res.ok) {
+          setDuplicateCheckError(json.error ?? 'ตรวจวัสดุซ้ำไม่สำเร็จ')
+          return
+        }
+        setDuplicateWarnings(json.data ?? [])
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          setDuplicateCheckError((err as Error).message)
+        }
+      } finally {
+        setDuplicateCheckLoading(false)
+      }
+    }, 600)
+
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+  }, [
+    form.base_uom,
+    form.base_uom_id,
+    form.brand,
+    form.cat_id,
+    form.category_id,
+    form.code_spec_key,
+    form.material_type_id,
+    form.mat_name_en,
+    form.mat_name_th,
+    form.model,
+    form.spec,
+    isCreate,
+  ])
+
   function handleCategoryChange(catId: string) {
     const category = categories.find((item) => item.cat_id === catId)
+    setTypeTouched(false)
     setForm((current) => ({
       ...current,
       cat_id: catId,
@@ -169,6 +278,18 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       spec: value,
     }))
     setFieldErrors((e) => ({ ...e, spec: '' }))
+  }
+
+  function handleMaterialTypeChange(value: string) {
+    setTypeTouched(true)
+    set('material_type_id', value)
+  }
+
+  function applyMaterialTypeSuggestion() {
+    if (!suggestedType) return
+
+    setTypeTouched(true)
+    set('material_type_id', suggestedType.id)
   }
 
   function handleSpecKeyChange(value: string) {
@@ -288,7 +409,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         <Field label="ชนิดวัสดุ" error={fieldErrors.material_type_id}>
           <select
             value={form.material_type_id ?? ''}
-            onChange={(e) => set('material_type_id', e.target.value)}
+            onChange={(e) => handleMaterialTypeChange(e.target.value)}
             className={inputCls(!!fieldErrors.material_type_id)}
             disabled={!form.cat_id}
           >
@@ -309,6 +430,19 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           {selectedCategory && availableTypes.length > 0 && !form.material_type_id && (
             <p className="mt-1 text-xs text-slate-400">
               ไม่เลือกได้ ระบบจะเดา Type จากชื่ออังกฤษ เช่น Thinner = THN
+            </p>
+          )}
+          {isCreate && suggestedType && form.material_type_id === suggestedType.id && !typeTouched && (
+            <p className="mt-1 text-xs text-emerald-600">
+              ระบบเลือกชนิดวัสดุ [{suggestedType.code_prefix}] {suggestedType.name} ให้อัตโนมัติจากชื่อ/สเปก
+            </p>
+          )}
+          {isCreate && suggestedType && form.material_type_id !== suggestedType.id && (
+            <p className="mt-1 text-xs text-blue-600">
+              ระบบแนะนำ [{suggestedType.code_prefix}] {suggestedType.name}{' '}
+              <button type="button" onClick={applyMaterialTypeSuggestion} className="font-semibold underline">
+                ใช้ชนิดนี้
+              </button>
             </p>
           )}
         </Field>
@@ -443,6 +577,14 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         />
       </Field>
 
+      {isCreate && (
+        <DuplicateWarningPanel
+          warnings={duplicateWarnings}
+          loading={duplicateCheckLoading}
+          error={duplicateCheckError}
+        />
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
         <button
@@ -462,6 +604,102 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         </button>
       </div>
     </form>
+  )
+}
+
+function DuplicateWarningPanel({
+  warnings,
+  loading,
+  error,
+}: {
+  warnings: DuplicateWarning[]
+  loading: boolean
+  error: string
+}) {
+  if (loading && warnings.length === 0) {
+    return (
+      <section className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-slate-500">
+        กำลังตรวจวัสดุใกล้เคียง...
+      </section>
+    )
+  }
+
+  if (error) {
+    return (
+      <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        ตรวจวัสดุซ้ำไม่สำเร็จ: {error}
+      </section>
+    )
+  }
+
+  if (warnings.length === 0) return null
+
+  return (
+    <section className="rounded-xl border border-amber-200 bg-amber-50/80 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-bold text-amber-950">พบวัสดุที่อาจใกล้เคียงกัน</h3>
+          <p className="mt-1 text-xs text-amber-800">
+            ตรวจรายการเดิมก่อนบันทึก วัสดุชื่อเหมือนแต่สเปกต่างกันอาจไม่ใช่ตัวซ้ำ
+          </p>
+        </div>
+        {loading && <span className="text-xs font-semibold text-amber-700">กำลังอัปเดต...</span>}
+      </div>
+      <div className="mt-3 grid gap-2">
+        {warnings.map((warning) => {
+          const hasSpecRisk = warning.matched_reasons.some((reason) => (
+            reason.key === 'different_spec' || reason.key === 'same_name_different_spec' || reason.key === 'ambiguous_spec'
+          ))
+
+          return (
+            <div key={warning.material_id} className="rounded-lg border border-amber-200 bg-white px-3 py-3 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Link href={`/materials/${warning.route_id}`} className="font-mono text-xs font-bold text-cyan-700 hover:underline">
+                    {warning.material_code ?? warning.material_id}
+                  </Link>
+                  <p className="mt-1 font-bold text-slate-900">{warning.mat_name_th}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {[
+                      warning.material_type_label,
+                      warning.code_spec_key ? `Spec key ${warning.code_spec_key}` : null,
+                      warning.spec,
+                    ].filter(Boolean).join(' / ') || '-'}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="rounded-full bg-slate-900 px-2 py-1 text-xs font-bold text-white">
+                    {warning.score}/100
+                  </span>
+                  <span className={`rounded-full px-2 py-1 text-xs font-bold ${
+                    hasSpecRisk ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
+                  }`}>
+                    {hasSpecRisk ? 'ชื่อ/หมวดใกล้ แต่สเปกต่าง' : warning.confidence_level === 'HIGH' ? 'น่าจะซ้ำจริง' : 'ตรวจสอบก่อน'}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 text-xs font-semibold text-slate-600">{warning.recommended_action}</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {warning.matched_reasons.slice(0, 4).map((reason) => (
+                  <span
+                    key={`${warning.material_id}-${reason.key}-${reason.detail ?? ''}`}
+                    className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                      reason.points < 0
+                        ? 'bg-red-50 text-red-700'
+                        : reason.points === 0
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {reason.label}{reason.detail ? `: ${reason.detail}` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

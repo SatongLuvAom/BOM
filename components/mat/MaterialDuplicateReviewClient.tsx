@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import type { MatCategory, MaterialType } from '@/types/mat'
 import type { DuplicateDecision, DuplicateConfidence, DuplicateStatus, MaterialDuplicateGroup } from '@/lib/server/material-duplicates'
@@ -29,7 +29,7 @@ const statusColor: Record<DuplicateStatus, 'blue' | 'green' | 'red' | 'yellow' |
 
 const decisionLabels: Record<DuplicateDecision, string> = {
   CONFIRMED_DUPLICATE: 'ยืนยันว่าเป็นวัสดุซ้ำ',
-  NOT_DUPLICATE: 'ไม่ใช่วัสดุซ้ำ',
+  NOT_DUPLICATE: 'ไม่ใช่ตัวซ้ำ (ซ่อนจากรายการ)',
   REVIEW_LATER: 'ตรวจสอบภายหลัง',
   MERGE_READY: 'พร้อมรวมรายการ',
 }
@@ -65,6 +65,22 @@ function hasSpecRisk(group: MaterialDuplicateGroup | null) {
   return Boolean(group?.candidates.some((candidate) => (
     candidate.matched_reasons.some((reason) => specRiskReasonKeys.has(reason.key))
   )))
+}
+
+function reviewKind(group: MaterialDuplicateGroup | null) {
+  if (!group) return ''
+  if (hasSpecRisk(group)) return 'ชื่อเหมือน/ใกล้เคียง แต่สเปกต่าง'
+  if (group.confidence_level === 'HIGH') return 'น่าจะซ้ำจริง'
+  if (group.confidence_level === 'MEDIUM') return 'ต้องตรวจสอบ'
+  return 'ข้อมูลไม่พอ'
+}
+
+function reviewKindClass(group: MaterialDuplicateGroup | null) {
+  if (!group) return 'bg-slate-100 text-slate-600'
+  if (hasSpecRisk(group)) return 'bg-amber-100 text-amber-800'
+  if (group.confidence_level === 'HIGH') return 'bg-emerald-100 text-emerald-800'
+  if (group.confidence_level === 'MEDIUM') return 'bg-blue-100 text-blue-800'
+  return 'bg-slate-100 text-slate-600'
 }
 
 function reasonPointsLabel(points: number) {
@@ -106,11 +122,18 @@ export function MaterialDuplicateReviewClient({
     })
   }, [groupRows, confidence, categoryId, typeId, unresolvedOnly])
 
-  const selected = filteredGroups.find((group) => group.id === selectedId)
-    ?? filteredGroups[0]
-    ?? groupRows.find((group) => group.id === selectedId)
-    ?? groupRows[0]
-    ?? null
+  useEffect(() => {
+    if (filteredGroups.length === 0) {
+      if (selectedId) setSelectedId('')
+      return
+    }
+
+    if (!filteredGroups.some((group) => group.id === selectedId)) {
+      setSelectedId(filteredGroups[0].id)
+    }
+  }, [filteredGroups, selectedId])
+
+  const selected = filteredGroups.find((group) => group.id === selectedId) ?? filteredGroups[0] ?? null
   const selectedHasSpecRisk = hasSpecRisk(selected)
 
   async function loadGroups() {
@@ -289,6 +312,9 @@ export function MaterialDuplicateReviewClient({
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <Badge label={group.confidence_level} color={confidenceColor[group.confidence_level]} />
                   <Badge label={group.status} color={statusColor[group.status]} />
+                  <span className={`rounded-full px-2 py-1 text-xs font-bold ${reviewKindClass(group)}`}>
+                    {reviewKind(group)}
+                  </span>
                 </div>
                 <p className="mt-2 text-xs text-slate-400">
                   Updated {new Date(group.updated_at).toLocaleString('th-TH')}
@@ -312,6 +338,9 @@ export function MaterialDuplicateReviewClient({
                       <Badge label={selected.confidence_level} color={confidenceColor[selected.confidence_level]} />
                       <Badge label={selected.status} color={statusColor[selected.status]} />
                       <span className="font-mono text-sm font-bold text-slate-800">{selected.max_score}/100</span>
+                      <span className={`rounded-full px-2 py-1 text-xs font-bold ${reviewKindClass(selected)}`}>
+                        {reviewKind(selected)}
+                      </span>
                     </div>
                     <p className="mt-2 text-sm text-slate-500">{selected.recommended_action}</p>
                     {selectedHasSpecRisk && (
@@ -351,6 +380,8 @@ export function MaterialDuplicateReviewClient({
                     })()}
                   </div>
                 </div>
+
+                <SideBySideComparison group={selected} />
 
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   {selected.candidates.map((candidate) => (
@@ -418,6 +449,64 @@ export function MaterialDuplicateReviewClient({
   )
 }
 
+function SideBySideComparison({ group }: { group: MaterialDuplicateGroup }) {
+  const [left, right] = group.candidates
+  if (!left?.material || !right?.material) return null
+
+  const rows = [
+    ['รหัสวัสดุ', materialCodeLabel(left), materialCodeLabel(right)],
+    ['ชื่อไทย', left.material.mat_name_th, right.material.mat_name_th],
+    ['ชื่ออังกฤษ', left.material.mat_name_en, right.material.mat_name_en],
+    ['หมวดหมู่', joined([left.material.category?.cat_name_th, left.material.category?.cat_code]), joined([right.material.category?.cat_name_th, right.material.category?.cat_code])],
+    ['ชนิดวัสดุ', materialTypeLabel(left), materialTypeLabel(right)],
+    ['Spec key', left.material.code_spec_key, right.material.code_spec_key],
+    ['สเปก', left.material.spec, right.material.spec],
+    ['แบรนด์', left.material.brand, right.material.brand],
+    ['รุ่น', left.material.model, right.material.model],
+    ['หน่วยหลัก', joined([left.material.uom?.uom_name_th, left.material.base_uom]), joined([right.material.uom?.uom_name_th, right.material.base_uom])],
+    ['ซัพพลายเออร์', supplierLabel(left), supplierLabel(right)],
+    ['Alias', aliasLabel(left), aliasLabel(right)],
+    ['ราคาล่าสุด', priceLabel(left), priceLabel(right)],
+    ['การใช้งาน', usageLabel(left), usageLabel(right)],
+  ] as const
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white">
+      <div className="border-b border-stone-200 px-4 py-3">
+        <h3 className="text-sm font-bold text-slate-900">เทียบข้อมูลข้างกัน</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          แถวสีเหลืองคือข้อมูลต่างกัน โดยเฉพาะ Spec key / สเปก ไม่ควรรวมรายการถ้ายังไม่แน่ใจ
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-stone-50 text-left text-xs uppercase tracking-[0.06em] text-slate-400">
+            <tr>
+              <th className="w-32 px-4 py-3">ข้อมูล</th>
+              <th className="px-4 py-3">{materialCodeLabel(left)}</th>
+              <th className="px-4 py-3">{materialCodeLabel(right)}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([label, leftValue, rightValue]) => {
+              const differs = normalizedCellValue(leftValue) !== normalizedCellValue(rightValue)
+              return (
+                <tr key={label} className={differs ? 'bg-amber-50/60' : ''}>
+                  <th className="border-t border-stone-100 px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.06em] text-slate-400">
+                    {label}
+                  </th>
+                  <td className="border-t border-stone-100 px-4 py-3 text-slate-700">{displayCell(leftValue)}</td>
+                  <td className="border-t border-stone-100 px-4 py-3 text-slate-700">{displayCell(rightValue)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function MaterialCompareCard({ candidate }: { candidate: MaterialDuplicateGroup['candidates'][number] }) {
   const material = candidate.material
 
@@ -476,4 +565,48 @@ function CompareRow({ label, value }: { label: string; value: string }) {
       <dd className="min-w-0 break-words text-slate-700">{value}</dd>
     </div>
   )
+}
+
+function displayCell(value: string | number | null | undefined) {
+  const text = String(value ?? '').trim()
+  return text || '-'
+}
+
+function normalizedCellValue(value: string | number | null | undefined) {
+  return displayCell(value).toLowerCase().replace(/\s+/g, '')
+}
+
+function materialCodeLabel(candidate: MaterialDuplicateGroup['candidates'][number]) {
+  return candidate.material?.material_code ?? candidate.material_id
+}
+
+function materialTypeLabel(candidate: MaterialDuplicateGroup['candidates'][number]) {
+  const type = candidate.material?.material_type
+  return type ? `[${type.code_prefix}] ${type.name}` : '-'
+}
+
+function supplierLabel(candidate: MaterialDuplicateGroup['candidates'][number]) {
+  const suppliers = candidate.material?.supplier_maps.map((map) => (
+    `${map.supplier?.supplier_name_th ?? map.supplier_id ?? 'Supplier'}${map.supplier_sku ? ` (${map.supplier_sku})` : ''}`
+  )) ?? []
+
+  return suppliers.length > 0 ? suppliers.join(', ') : '-'
+}
+
+function aliasLabel(candidate: MaterialDuplicateGroup['candidates'][number]) {
+  const aliases = candidate.material?.aliases.map((alias) => alias.alias_name ?? alias.normalized_alias).filter(Boolean) ?? []
+  return aliases.length > 0 ? aliases.join(', ') : '-'
+}
+
+function priceLabel(candidate: MaterialDuplicateGroup['candidates'][number]) {
+  const latestPrice = candidate.material?.latest_price
+  return latestPrice
+    ? `${money(latestPrice.unit_price)} ${latestPrice.currency_code}/${latestPrice.price_uom ?? '-'}`
+    : 'ยังไม่มีราคา'
+}
+
+function usageLabel(candidate: MaterialDuplicateGroup['candidates'][number]) {
+  const material = candidate.material
+  if (!material) return '-'
+  return `BOM ${material.bom_usage_count} / BOQ ${material.boq_usage_count}`
 }

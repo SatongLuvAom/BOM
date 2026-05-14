@@ -64,6 +64,24 @@ export type DuplicateScanSummary = {
   low: number
 }
 
+export type MaterialDuplicateWarning = {
+  material_id: string
+  route_id: string
+  material_code: string | null
+  mat_name_th: string | null
+  mat_name_en: string | null
+  category_name: string | null
+  material_type_label: string | null
+  code_spec_key: string | null
+  spec: string | null
+  brand: string | null
+  model: string | null
+  score: number
+  confidence_level: DuplicateConfidence
+  recommended_action: string
+  matched_reasons: DuplicateReason[]
+}
+
 type DuplicateScanResult = {
   group_key: string
   material_ids: [string, string]
@@ -677,6 +695,123 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
     bom_usage_count: bomCounts.get(material.material_id) ?? 0,
     boq_usage_count: boqCounts.get(material.material_id) ?? 0,
   }))
+}
+
+function buildInputDuplicateMaterial(input: {
+  cat_id?: string | null
+  category_id?: string | null
+  material_type_id?: string | null
+  code_spec_key?: string | null
+  mat_name_th?: string | null
+  mat_name_en?: string | null
+  spec?: string | null
+  brand?: string | null
+  model?: string | null
+  base_uom?: string | null
+  base_uom_id?: string | null
+}): DuplicateMaterial {
+  return {
+    id: null,
+    material_id: '__new_material__',
+    material_code: null,
+    mat_name_th: input.mat_name_th ?? null,
+    mat_name_en: input.mat_name_en ?? null,
+    category_id: input.category_id ?? null,
+    cat_id: input.cat_id ?? null,
+    material_type_id: input.material_type_id ?? null,
+    code_spec_key: input.code_spec_key ?? null,
+    base_uom: input.base_uom ?? null,
+    base_uom_id: input.base_uom_id ?? null,
+    brand: input.brand ?? null,
+    model: input.model ?? null,
+    spec: input.spec ?? null,
+    status: 'ACTIVE',
+    category: null,
+    material_type: null,
+    uom: null,
+    aliases: [],
+    supplier_maps: [],
+    latest_price: null,
+    bom_usage_count: 0,
+    boq_usage_count: 0,
+  }
+}
+
+export async function getMaterialDuplicateWarnings(
+  supabase: SupabaseLike,
+  input: {
+    cat_id?: string | null
+    category_id?: string | null
+    material_type_id?: string | null
+    code_spec_key?: string | null
+    mat_name_th?: string | null
+    mat_name_en?: string | null
+    spec?: string | null
+    brand?: string | null
+    model?: string | null
+    base_uom?: string | null
+    base_uom_id?: string | null
+    limit?: number
+  },
+): Promise<MaterialDuplicateWarning[]> {
+  const hasName = cleanKey(input.mat_name_th).length >= 2 || cleanKey(input.mat_name_en).length >= 2
+  if (!hasName || (!input.cat_id && !input.category_id)) return []
+
+  let query = supabase
+    .from('mat_master')
+    .select(`
+      id, material_id, material_code, mat_name_th, mat_name_en, normalized_name,
+      cat_id, category_id, material_type_id, code_spec_key, base_uom, base_uom_id,
+      brand, model, spec, status,
+      category:mat_category!mat_master_cat_id_fkey(id, cat_id, cat_code, cat_name_th, code_prefix),
+      material_type:material_types!mat_master_material_type_id_v1_fkey(id, name, code_prefix),
+      uom:mat_uom!mat_master_base_uom_fkey(uom_code, uom_name_th)
+    `)
+    .eq('is_deleted', false)
+    .order('updated_at', { ascending: false })
+    .limit(300)
+
+  if (input.category_id) {
+    query = query.eq('category_id', input.category_id)
+  } else if (input.cat_id) {
+    query = query.eq('cat_id', input.cat_id)
+  }
+
+  const { data, error } = await query
+  if (error) throw new Error(error.message)
+
+  const incoming = buildInputDuplicateMaterial(input)
+  const materialRows = (data ?? []) as any[]
+  const warnings: MaterialDuplicateWarning[] = materialRows
+    .map((row: any) => normalizeMaterialRow(row))
+    .map((material: DuplicateMaterial): MaterialDuplicateWarning | null => {
+      const result = scorePair(incoming, material)
+      if (!result) return null
+
+      return {
+        material_id: material.material_id,
+        route_id: getMaterialRouteId(material),
+        material_code: material.material_code,
+        mat_name_th: material.mat_name_th,
+        mat_name_en: material.mat_name_en,
+        category_name: material.category?.cat_name_th ?? material.category?.cat_code ?? null,
+        material_type_label: material.material_type
+          ? `[${material.material_type.code_prefix}] ${material.material_type.name}`
+          : null,
+        code_spec_key: material.code_spec_key,
+        spec: material.spec,
+        brand: material.brand,
+        model: material.model,
+        score: result.score,
+        confidence_level: result.confidence_level,
+        recommended_action: result.recommended_action,
+        matched_reasons: result.matched_reasons,
+      } satisfies MaterialDuplicateWarning
+    })
+    .filter((warning: MaterialDuplicateWarning | null): warning is MaterialDuplicateWarning => Boolean(warning))
+    .sort((left: MaterialDuplicateWarning, right: MaterialDuplicateWarning) => right.score - left.score)
+
+  return warnings.slice(0, Math.min(Math.max(input.limit ?? 5, 1), 10))
 }
 
 export async function runMaterialDuplicateScan(supabase: SupabaseLike): Promise<DuplicateScanSummary> {
