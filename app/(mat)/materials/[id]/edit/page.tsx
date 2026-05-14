@@ -33,15 +33,23 @@ export default async function EditMaterialPage({ params }: Props) {
 
   if (matRes.error) notFound()
 
-  const material   = assertSupabase(matRes,       `Failed to load material ${id}`)
+  const material = assertSupabase(matRes, `Failed to load material ${id}`)
+  const materialCode = getMaterialCode(matRes.data)
 
   return (
     <div>
       <Header
-        title="แก้ไขวัสดุ"
-        subtitle={`${getMaterialCode(matRes.data)} — ${matRes.data.mat_name_th}`}
+        title="แก้ไขข้อมูลวัสดุ"
+        subtitle={`${materialCode} — ${matRes.data.mat_name_th}`}
       />
-      <div className="mx-auto max-w-2xl space-y-8 px-4 py-6">
+      <div className="mx-auto max-w-2xl space-y-6 px-4 py-6">
+        <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-900 shadow-sm">
+          <h2 className="text-base font-bold text-amber-950">กำลังแก้ไขวัสดุที่มีอยู่แล้ว</h2>
+          <p className="mt-2">
+            รหัสวัสดุถูกล็อกหลังจากสร้างแล้ว เพื่อป้องกัน BOM / BOQ เดิมเสียความสัมพันธ์
+            การเปลี่ยนรหัสต้องใช้ขั้นตอนอนุมัติพร้อมบันทึกเหตุผล และระบบต้องเก็บประวัติรหัสเดิมไว้
+          </p>
+        </section>
         <MaterialForm
           mode="edit"
           material={material as any}

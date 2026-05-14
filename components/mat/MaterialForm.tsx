@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { MatCategory, MatMaster, MatUom, MaterialType } from '@/types/mat'
 import type { CreateMaterialInput } from '@/lib/validations/material'
@@ -24,6 +25,8 @@ const STATUS_OPTIONS = [
 
 export function MaterialForm({ material, categories, uoms, materialTypes, mode }: MaterialFormProps) {
   const router = useRouter()
+  const isCreate = mode === 'create'
+  const materialRouteId = material ? getMaterialRouteId(material) : ''
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -80,7 +83,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
   )
 
   useEffect(() => {
-    if (mode !== 'create' || !form.cat_id) {
+    if (!isCreate || !form.cat_id) {
       setCodePreview('')
       return
     }
@@ -119,7 +122,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [form.cat_id, form.material_type_id, form.code_spec_key, form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model, mode])
+  }, [form.cat_id, form.material_type_id, form.code_spec_key, form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model, isCreate])
 
   function handleCategoryChange(catId: string) {
     const category = categories.find((item) => item.cat_id === catId)
@@ -136,7 +139,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     setForm((current) => ({
       ...current,
       spec: value,
-      code_spec_key: mode === 'create' && (!current.code_spec_key || current.code_spec_key === 'GEN')
+      code_spec_key: isCreate && (!current.code_spec_key || current.code_spec_key === 'GEN')
         ? inferSpecKeyFromText(value)
         : current.code_spec_key,
     }))
@@ -161,12 +164,12 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
 
     setSaving(true)
     try {
-      const url = mode === 'create'
+      const url = isCreate
         ? '/api/materials'
         : `/api/materials/${getMaterialRouteId(material!)}`
 
       const res = await fetch(url, {
-        method: mode === 'create' ? 'POST' : 'PATCH',
+        method: isCreate ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(parsed.data),
       })
@@ -177,7 +180,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         return
       }
 
-      const id = mode === 'create'
+      const id = isCreate
         ? (json.data.id ?? json.data.material_id)
         : getMaterialRouteId(material!)
 
@@ -196,19 +199,39 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       )}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <Field label="Material code" error={fieldErrors.material_code}>
+        <Field label={isCreate ? 'ตัวอย่างรหัสวัสดุ' : 'รหัสวัสดุ'} error={fieldErrors.material_code}>
           <input
             type="text"
-            value={mode === 'create' ? codePreview : form.material_code ?? ''}
+            value={isCreate ? codePreview : form.material_code ?? ''}
             placeholder="เช่น STR-260410-0001"
             readOnly
             className={`${inputCls(!!fieldErrors.material_code)} bg-slate-50 font-mono text-slate-600`}
           />
           <p className="mt-1 text-xs text-slate-400">
-            {mode === 'create'
-              ? 'Preview only. Final sequence is generated on save.'
-              : 'Locked. Use Change Code / Regenerate Code on the detail page.'}
+            {isCreate
+              ? 'ตัวอย่างเท่านั้น รหัสจริงจะถูกสร้างตอนบันทึก และจะถูกล็อกหลังสร้าง'
+              : 'รหัสวัสดุอ่านอย่างเดียวในหน้าแก้ไขปกติ'}
           </p>
+          {!isCreate && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-900">
+              <p className="font-semibold">รหัสวัสดุถูกล็อกหลังจากสร้างแล้ว</p>
+              <p className="mt-1">
+                รหัสนี้ใช้เชื่อมข้อมูลกับ BOM / BOQ การเปลี่ยนรหัสต้องมีเหตุผล
+                ระบบต้องเก็บประวัติรหัสเดิม และรหัสเดิมต้องค้นหาเจอผ่าน Alias ตาม workflow เดิม
+              </p>
+              {materialRouteId && (
+                <Link
+                  href={`/materials/${materialRouteId}#code-history`}
+                  className="mt-3 inline-flex rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                >
+                  เปลี่ยน / สร้างรหัสใหม่
+                </Link>
+              )}
+              <p className="mt-2 text-[11px] text-amber-800">
+                ปุ่มนี้พาไป workflow เปลี่ยนรหัสในหน้า Detail ซึ่งต้องบันทึกเหตุผลก่อนเปลี่ยน
+              </p>
+            </div>
+          )}
         </Field>
 
         {/* Category */}
@@ -374,7 +397,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white
                      hover:bg-blue-700 disabled:opacity-60 transition-colors"
         >
-          {saving ? 'กำลังบันทึก...' : mode === 'create' ? 'สร้างวัสดุ' : 'บันทึกการเปลี่ยนแปลง'}
+          {saving ? 'กำลังบันทึก...' : isCreate ? 'สร้างวัสดุ' : 'บันทึกการเปลี่ยนแปลง'}
         </button>
         <button
           type="button"
