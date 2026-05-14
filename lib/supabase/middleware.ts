@@ -1,6 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { isOwnerEmail } from '@/lib/auth/owner-email'
 
 type CookieToSet = { name: string; value: string; options?: Record<string, unknown> }
 
@@ -73,7 +72,7 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user && !isPublicPath(pathname)) {
+  if (!user?.email && !isPublicPath(pathname)) {
     if (isApiRoute) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
@@ -83,15 +82,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && !isPublicPath(pathname) && !isOwnerEmail(user.email)) {
-    if (isApiRoute) {
-      return NextResponse.json({ error: 'Owner access required' }, { status: 403 })
-    }
-
-    const url = request.nextUrl.clone()
-    url.pathname = '/unauthorized'
-    return NextResponse.redirect(url)
-  }
+  // TODO RBAC: replace temporary authenticated-user access with role-based access control.
 
   return supabaseResponse
 }

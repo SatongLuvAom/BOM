@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { UnauthorizedActions } from '@/components/auth/UnauthorizedActions'
-import { getOwnerEmail } from '@/lib/auth/owner-email'
 import { createClient } from '@/lib/supabase/server'
 
 export default async function UnauthorizedPage() {
@@ -8,7 +7,6 @@ export default async function UnauthorizedPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  const ownerEmail = getOwnerEmail()
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--app-bg)] px-4">
@@ -22,16 +20,13 @@ export default async function UnauthorizedPage() {
         </div>
         <h1 className="mt-5 text-2xl font-bold text-slate-950">Unauthorized</h1>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          บัญชีนี้ไม่ใช่ owner ที่ตั้งไว้ในระบบ กรุณาเข้าสู่ระบบด้วยอีเมลเดียวกับค่า OWNER_EMAIL
+          บัญชีนี้ยังไม่มีสิทธิ์เข้าใช้งานส่วนนี้ หรือ session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง
+          หากยังเข้าไม่ได้ให้ติดต่อผู้ดูแลระบบ
         </p>
         <div className="mt-4 rounded-xl border border-stone-200 bg-white px-4 py-3 text-left text-xs text-slate-600">
           <p>
             <span className="font-semibold text-slate-900">Current session:</span>{' '}
             {user?.email ?? 'ยังไม่มี session'}
-          </p>
-          <p className="mt-1">
-            <span className="font-semibold text-slate-900">OWNER_EMAIL:</span>{' '}
-            {ownerEmail || 'ยังไม่ได้ตั้งค่า'}
           </p>
         </div>
         <div className="mt-6 flex justify-center gap-3">
