@@ -7,7 +7,7 @@ import type { MatCategory, MatMaster, MatUom, MaterialType } from '@/types/mat'
 import type { CreateMaterialInput } from '@/lib/validations/material'
 import { createMaterialSchema } from '@/lib/validations/material'
 import { getMaterialCode, getMaterialRouteId } from '@/lib/material-master'
-import { inferSpecKeyFromText, inferTypePrefixFromText, sanitizeSpecKey } from '@/lib/material-code'
+import { inferExplicitSpecKeyFromText, inferSpecKeyFromText, inferTypePrefixFromText } from '@/lib/material-code'
 
 interface MaterialFormProps {
   material?: MatMaster
@@ -32,6 +32,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [codePreview, setCodePreview] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [specKeyTouched, setSpecKeyTouched] = useState(!isCreate && Boolean(material?.code_spec_key))
 
   const [form, setForm] = useState<CreateMaterialInput>({
     material_code: material ? getMaterialCode(material) : '',
@@ -82,6 +83,31 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     [form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model],
   )
 
+  const specKeySuggestion = useMemo(() => {
+    const explicitSpec = String(form.spec ?? '').trim()
+    if (explicitSpec) {
+      const inferred = inferSpecKeyFromText(explicitSpec)
+      return inferred === 'GEN' ? '' : inferred
+    }
+
+    return inferExplicitSpecKeyFromText([
+      form.mat_name_en,
+      form.mat_name_th,
+      form.brand,
+      form.model,
+    ].filter(Boolean).join(' '))
+  }, [form.spec, form.mat_name_en, form.mat_name_th, form.brand, form.model])
+
+  useEffect(() => {
+    if (!isCreate || specKeyTouched || form.code_spec_key || !specKeySuggestion) return
+
+    setForm((current) => (
+      current.code_spec_key
+        ? current
+        : { ...current, code_spec_key: specKeySuggestion }
+    ))
+  }, [form.code_spec_key, isCreate, specKeySuggestion, specKeyTouched])
+
   useEffect(() => {
     if (!isCreate || !form.cat_id) {
       setCodePreview('')
@@ -98,7 +124,9 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           body: JSON.stringify({
             cat_id: form.cat_id,
             material_type_id: form.material_type_id || undefined,
-            spec_key: form.code_spec_key && form.code_spec_key !== 'GEN' ? form.code_spec_key : undefined,
+            spec_key: form.code_spec_key && form.code_spec_key.length >= 2 && form.code_spec_key !== 'GEN'
+              ? form.code_spec_key
+              : undefined,
             mat_name_en: form.mat_name_en,
             mat_name_th: form.mat_name_th,
             spec: form.spec,
@@ -139,11 +167,18 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     setForm((current) => ({
       ...current,
       spec: value,
-      code_spec_key: isCreate && (!current.code_spec_key || current.code_spec_key === 'GEN')
-        ? inferSpecKeyFromText(value)
-        : current.code_spec_key,
     }))
-    setFieldErrors((e) => ({ ...e, spec: '', code_spec_key: '' }))
+    setFieldErrors((e) => ({ ...e, spec: '' }))
+  }
+
+  function handleSpecKeyChange(value: string) {
+    setSpecKeyTouched(true)
+    set('code_spec_key', sanitizeOptionalCodePart(value, 12))
+  }
+
+  function applySpecKeySuggestion() {
+    setSpecKeyTouched(true)
+    set('code_spec_key', specKeySuggestion || 'GEN')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -279,16 +314,35 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         </Field>
 
         <Field label="Spec key ของรหัส" error={fieldErrors.code_spec_key}>
-          <input
-            type="text"
-            value={form.code_spec_key ?? ''}
-            onChange={(e) => set('code_spec_key', sanitizeSpecKey(e.target.value))}
-            placeholder="ไม่ใส่ = GEN, เช่น 006, 030W, W1000"
-            className={`${inputCls(!!fieldErrors.code_spec_key)} font-mono`}
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={form.code_spec_key ?? ''}
+              onChange={(e) => handleSpecKeyChange(e.target.value)}
+              placeholder="ปล่อยว่างได้ เช่น 006, 030W, W1000"
+              className={`${inputCls(!!fieldErrors.code_spec_key)} font-mono`}
+            />
+            {isCreate && (
+              <button
+                type="button"
+                onClick={applySpecKeySuggestion}
+                className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                เดาจากสเปก
+              </button>
+            )}
+          </div>
           <p className="mt-1 text-xs text-slate-400">
-            หมวดหมู่ {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? inferredTypePrefix}
+            {form.code_spec_key
+              ? `ใช้ Spec key ${form.code_spec_key}`
+              : 'ถ้าไม่ใส่ ระบบจะเดาจากสเปก/ชื่อสินค้า และถ้าเดาไม่ได้จะใช้ GEN ตอนบันทึก'}
+            {' '}หมวดหมู่ {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? inferredTypePrefix}
           </p>
+          {isCreate && specKeySuggestion && form.code_spec_key !== specKeySuggestion && (
+            <p className="mt-1 text-xs text-blue-600">
+              ระบบแนะนำ: <button type="button" onClick={applySpecKeySuggestion} className="font-mono font-semibold underline">{specKeySuggestion}</button>
+            </p>
+          )}
         </Field>
 
         {/* Base UOM */}
@@ -435,4 +489,11 @@ function inputCls(hasError: boolean) {
       ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
       : 'border-gray-300 focus:border-blue-500 focus:ring-blue-500'
   }`
+}
+
+function sanitizeOptionalCodePart(value: string, maxLength: number) {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, maxLength)
 }

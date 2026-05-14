@@ -88,8 +88,16 @@ function matchSpecPattern(value: string | null | undefined) {
   if (/\b(BLK|BLACK)\b/.test(upper)) return 'BLK'
   if (/\b(CLR|CLEAR)\b/.test(upper)) return 'CLR'
   if (/\b(GRY|GRAY|GREY)\b/.test(upper)) return 'GRY'
+  if (/สีขาว|ขาว/.test(text)) return 'WHT'
+  if (/สีดำ|ดำ/.test(text)) return 'BLK'
+  if (/สีใส|ใส|เคลียร์/.test(text)) return 'CLR'
+  if (/สีเทา|เทา/.test(text)) return 'GRY'
 
   return null
+}
+
+export function inferExplicitSpecKeyFromText(value: string | null | undefined) {
+  return matchSpecPattern(value) ?? ''
 }
 
 export function inferSpecKeyFromText(value: string | null | undefined) {
