@@ -1,0 +1,163 @@
+@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --app-bg: #eef3f0;
+    --app-shell: #f8f6ef;
+    --app-sidebar: #f4f1e8;
+    --app-surface: #fffdf8;
+    --app-surface-soft: #f2f6f3;
+    --app-text: #151817;
+    --app-muted: #747973;
+    --app-border: #dedbd0;
+    --app-border-strong: #c9c5b8;
+    --app-accent: #0f172a;
+    --app-cyan: #0e7490;
+    --app-emerald: #047857;
+    --app-amber: #b45309;
+    --app-danger: #b91c1c;
+    --app-success: #059669;
+    --app-shadow: 0 18px 54px rgba(15, 23, 42, 0.12);
+    --app-card-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    font-family: 'Sarabun', ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background:
+      linear-gradient(135deg, rgba(14, 116, 144, 0.08), transparent 32rem),
+      radial-gradient(circle at 100% 0%, rgba(217, 119, 6, 0.10), transparent 28rem),
+      var(--app-bg);
+    color: var(--app-text);
+  }
+
+  /* Elegant Thin scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+
+  /* Monospace for IDs */
+  .font-mono {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+
+  /* Smooth focus rings */
+  *:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Primary action button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-950/10
+           transition-all duration-150 hover:bg-slate-800 hover:shadow-md active:scale-[0.99] focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  /* Secondary / outline button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold
+           text-slate-700 shadow-sm transition-all duration-150 hover:border-slate-400 hover:bg-stone-50 hover:text-slate-950
+           active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2;
+  }
+
+  /* Subtle card container */
+  .card {
+    @apply rounded-2xl border border-stone-200 bg-[var(--app-surface)] shadow-[0_12px_34px_rgba(15,23,42,0.08)];
+  }
+
+  .soft-card {
+    @apply rounded-2xl border border-stone-200 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)];
+  }
+
+  .soft-pill {
+    @apply rounded-xl border border-stone-300 bg-white shadow-sm;
+  }
+
+  .ops-toolbar {
+    @apply sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-[var(--app-surface)] px-5 py-3;
+  }
+
+  .ops-select {
+    @apply rounded-xl border border-stone-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-slate-700 shadow-sm transition-colors
+           hover:border-slate-300 focus:border-slate-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-950/10;
+  }
+
+  .ops-icon-btn {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-slate-500 transition-colors
+           hover:border-stone-200 hover:bg-stone-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .data-table thead tr {
+    @apply border-y border-stone-200 bg-stone-100/80;
+  }
+
+  .data-table th {
+    @apply whitespace-nowrap px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500;
+  }
+
+  .data-table tbody {
+    @apply divide-y divide-stone-100;
+  }
+
+  .data-table tbody tr {
+    @apply transition-colors hover:bg-cyan-50/35;
+  }
+
+  .data-table td {
+    @apply px-3 py-2.5 align-middle;
+  }
+}
+
+@layer utilities {
+  .table-hover tbody tr {
+    @apply transition-colors duration-150 hover:bg-cyan-50/35;
+  }
+  
+  .glass {
+    @apply border-b border-stone-200 bg-white/90 backdrop-blur;
+  }
+
+  .assistant-float {
+    animation: assistant-breathe 3.8s ease-in-out infinite;
+  }
+}
+
+@keyframes assistant-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
