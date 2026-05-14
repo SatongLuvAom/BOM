@@ -28,11 +28,13 @@ const statusColor: Record<DuplicateStatus, 'blue' | 'green' | 'red' | 'yellow' |
 }
 
 const decisionLabels: Record<DuplicateDecision, string> = {
-  CONFIRMED_DUPLICATE: 'Confirm Duplicate',
-  NOT_DUPLICATE: 'Not Duplicate',
-  REVIEW_LATER: 'Review Later',
-  MERGE_READY: 'Mark as Merge Ready',
+  CONFIRMED_DUPLICATE: 'ยืนยันว่าเป็นวัสดุซ้ำ',
+  NOT_DUPLICATE: 'ไม่ใช่วัสดุซ้ำ',
+  REVIEW_LATER: 'ตรวจสอบภายหลัง',
+  MERGE_READY: 'พร้อมรวมรายการ',
 }
+
+const specRiskReasonKeys = new Set(['different_spec', 'same_name_different_spec', 'ambiguous_spec'])
 
 function materialCategoryId(group: MaterialDuplicateGroup) {
   return group.candidates.map((candidate) => candidate.material?.category_id ?? candidate.material?.category?.id ?? '').filter(Boolean)
@@ -57,6 +59,18 @@ function candidateName(group: MaterialDuplicateGroup) {
     .map((candidate) => candidate.material?.mat_name_th || candidate.material_id)
     .filter(Boolean)
     .join(' / ')
+}
+
+function hasSpecRisk(group: MaterialDuplicateGroup | null) {
+  return Boolean(group?.candidates.some((candidate) => (
+    candidate.matched_reasons.some((reason) => specRiskReasonKeys.has(reason.key))
+  )))
+}
+
+function reasonPointsLabel(points: number) {
+  if (points > 0) return `+${points}`
+  if (points < 0) return String(points)
+  return 'ตรวจสอบ'
 }
 
 export function MaterialDuplicateReviewClient({
@@ -97,6 +111,7 @@ export function MaterialDuplicateReviewClient({
     ?? groupRows.find((group) => group.id === selectedId)
     ?? groupRows[0]
     ?? null
+  const selectedHasSpecRisk = hasSpecRisk(selected)
 
   async function loadGroups() {
     const res = await fetch('/api/material-duplicates?limit=300')
@@ -299,6 +314,11 @@ export function MaterialDuplicateReviewClient({
                       <span className="font-mono text-sm font-bold text-slate-800">{selected.max_score}/100</span>
                     </div>
                     <p className="mt-2 text-sm text-slate-500">{selected.recommended_action}</p>
+                    {selectedHasSpecRisk && (
+                      <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                        พบความเสี่ยงเรื่องสเปกต่างกัน จึงไม่ควรทำเครื่องหมายว่า “พร้อมรวมรายการ”
+                      </p>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400">Group {selected.id}</p>
                 </div>
@@ -317,9 +337,15 @@ export function MaterialDuplicateReviewClient({
                       return reasons.map((reason) => (
                         <span
                           key={`${reason.key}-${reason.detail ?? ''}`}
-                          className="inline-flex rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                          className={`inline-flex rounded-lg border px-3 py-2 text-xs font-semibold ${
+                            reason.points < 0
+                              ? 'border-red-200 bg-red-50 text-red-700'
+                              : reason.points === 0
+                              ? 'border-amber-200 bg-amber-50 text-amber-800'
+                              : 'border-stone-200 bg-white text-slate-700'
+                          }`}
                         >
-                          +{reason.points} {reason.label}{reason.detail ? `: ${reason.detail}` : ''}
+                          {reasonPointsLabel(reason.points)} {reason.label}{reason.detail ? `: ${reason.detail}` : ''}
                         </span>
                       ))
                     })()}
@@ -344,25 +370,29 @@ export function MaterialDuplicateReviewClient({
                     />
                   </label>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {(Object.keys(decisionLabels) as DuplicateDecision[]).map((decision) => (
-                      <button
-                        key={decision}
-                        type="button"
-                        onClick={() => saveDecision(decision)}
-                        disabled={Boolean(saving)}
-                        className={`rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-60 ${
-                          decision === 'NOT_DUPLICATE'
-                            ? 'bg-red-600 hover:bg-red-700'
-                            : decision === 'REVIEW_LATER'
-                            ? 'bg-amber-600 hover:bg-amber-700'
-                            : decision === 'MERGE_READY'
-                            ? 'bg-orange-600 hover:bg-orange-700'
-                            : 'bg-emerald-700 hover:bg-emerald-800'
-                        }`}
-                      >
-                        {saving === decision ? 'Saving...' : decisionLabels[decision]}
-                      </button>
-                    ))}
+                    {(Object.keys(decisionLabels) as DuplicateDecision[]).map((decision) => {
+                      const disabledBySpecRisk = decision === 'MERGE_READY' && selectedHasSpecRisk
+                      return (
+                        <button
+                          key={decision}
+                          type="button"
+                          onClick={() => saveDecision(decision)}
+                          disabled={Boolean(saving) || disabledBySpecRisk}
+                          title={disabledBySpecRisk ? 'สเปกต่างกันหรือข้อมูลสเปกไม่พอ ต้องตรวจสอบก่อน' : undefined}
+                          className={`rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-60 ${
+                            decision === 'NOT_DUPLICATE'
+                              ? 'bg-red-600 hover:bg-red-700'
+                              : decision === 'REVIEW_LATER'
+                              ? 'bg-amber-600 hover:bg-amber-700'
+                              : decision === 'MERGE_READY'
+                              ? 'bg-orange-600 hover:bg-orange-700'
+                              : 'bg-emerald-700 hover:bg-emerald-800'
+                          }`}
+                        >
+                          {saving === decision ? 'กำลังบันทึก...' : decisionLabels[decision]}
+                        </button>
+                      )
+                    })}
                   </div>
                   {selected.decisions.length > 0 && (
                     <div className="mt-4 border-t border-stone-100 pt-3">

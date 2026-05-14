@@ -106,6 +106,8 @@ type DuplicateMaterial = {
 }
 
 const STANDARD_CODE_RE = /^([A-Z0-9]{2,5})-([A-Z0-9]{2,8})-([A-Z0-9]{2,12})-[0-9]{4}$/
+const GENERAL_SPEC_KEYS = new Set(['GEN', 'GENERAL', 'NA', 'N/A', 'NONE', '-'])
+const SPEC_RISK_REASON_KEYS = new Set(['different_spec', 'same_name_different_spec', 'ambiguous_spec'])
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
@@ -126,9 +128,26 @@ function upperCode(value: string | null | undefined) {
   return String(value ?? '').trim().toUpperCase()
 }
 
-function standardCodeGroup(value: string | null | undefined) {
+function standardCodeParts(value: string | null | undefined) {
   const match = upperCode(value).match(STANDARD_CODE_RE)
-  return match ? `${match[1]}-${match[2]}-${match[3]}` : ''
+  return match
+    ? { category: match[1], type: match[2], spec: match[3] }
+    : null
+}
+
+function standardCodeGroup(value: string | null | undefined) {
+  const parts = standardCodeParts(value)
+  return parts ? `${parts.category}-${parts.type}-${parts.spec}` : ''
+}
+
+function standardCategoryType(value: string | null | undefined) {
+  const parts = standardCodeParts(value)
+  return parts ? `${parts.category}-${parts.type}` : ''
+}
+
+function meaningfulSpecKey(value: string | null | undefined) {
+  const key = upperCode(value).replace(/[^A-Z0-9]+/g, '')
+  return key && !GENERAL_SPEC_KEYS.has(key) ? key : ''
 }
 
 function sameNonEmpty(left: string | null | undefined, right: string | null | undefined) {
@@ -170,6 +189,13 @@ function textSimilarity(left: string | null | undefined, right: string | null | 
   return Math.max(tokenScore, gramScore)
 }
 
+function exactNameMatch(left: DuplicateMaterial, right: DuplicateMaterial) {
+  return (
+    Boolean(cleanKey(left.mat_name_th) && cleanKey(left.mat_name_th) === cleanKey(right.mat_name_th))
+    || Boolean(cleanKey(left.mat_name_en) && cleanKey(left.mat_name_en) === cleanKey(right.mat_name_en))
+  )
+}
+
 function namePoints(left: DuplicateMaterial, right: DuplicateMaterial) {
   const th = textSimilarity(left.mat_name_th, right.mat_name_th)
   const en = textSimilarity(left.mat_name_en, right.mat_name_en)
@@ -208,6 +234,132 @@ function extractDimensions(material: DuplicateMaterial) {
   return dimensions
 }
 
+function normalizeDimensionText(value: string | null | undefined) {
+  return String(value ?? '')
+    .toUpperCase()
+    .replace(/×/g, 'X')
+    .replace(/มิลลิเมตร|ม\.ม\.|มม\.?|มม/gi, 'MM')
+    .replace(/เซนติเมตร|ซม\.?|ซม/gi, 'CM')
+    .replace(/เมตร/gi, 'M')
+    .replace(/วัตต์/gi, 'W')
+    .replace(/โวลต์/gi, 'V')
+    .replace(/นิ้ว/gi, 'IN')
+    .replace(/(\d)\s+(MM|CM|M|W|V|IN)\b/g, '$1$2')
+}
+
+function addSpecToken(tokens: Set<string>, value: string | null | undefined) {
+  const token = upperCode(value).replace(/\s+/g, '')
+  if (!token) return
+
+  tokens.add(token)
+
+  const metricMatch = token.match(/^(\d{1,3})(MM)$/)
+  if (metricMatch) {
+    const padded = metricMatch[1].padStart(3, '0')
+    tokens.add(padded)
+    tokens.add(`${padded}MM`)
+  }
+
+  const wattMatch = token.match(/^(\d{1,3})W$/)
+  if (wattMatch) {
+    tokens.add(`${wattMatch[1].padStart(3, '0')}W`)
+  }
+}
+
+function extractSpecTokens(material: DuplicateMaterial) {
+  const tokens = new Set<string>()
+  const codeParts = standardCodeParts(material.material_code)
+  const codeSpec = meaningfulSpecKey(codeParts?.spec)
+  const formSpec = meaningfulSpecKey(material.code_spec_key)
+
+  if (codeSpec) addSpecToken(tokens, codeSpec)
+  if (formSpec) addSpecToken(tokens, formSpec)
+
+  const text = normalizeDimensionText([
+    material.mat_name_th,
+    material.mat_name_en,
+    material.spec,
+    material.model,
+  ].filter(Boolean).join(' '))
+
+  const patterns = [
+    /\b\d{1,4}(?:\.\d+)?(?:MM|CM|M|W|V|IN)\b/g,
+    /\b\d{2,4}X\d{2,4}(?:X\d{1,4})?(?:MM|CM|M)?\b/g,
+  ]
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      addSpecToken(tokens, match[0])
+    }
+  }
+
+  return tokens
+}
+
+function sameCategory(left: DuplicateMaterial, right: DuplicateMaterial) {
+  return Boolean(
+    (left.category_id && left.category_id === right.category_id)
+    || (left.cat_id && left.cat_id === right.cat_id)
+    || (left.category?.id && left.category.id === right.category?.id)
+    || (left.category?.cat_id && left.category.cat_id === right.category?.cat_id),
+  )
+}
+
+function sameMaterialType(left: DuplicateMaterial, right: DuplicateMaterial) {
+  return Boolean(left.material_type_id && left.material_type_id === right.material_type_id)
+}
+
+function sameCategoryType(left: DuplicateMaterial, right: DuplicateMaterial) {
+  const leftCodeType = standardCategoryType(left.material_code)
+  const rightCodeType = standardCategoryType(right.material_code)
+  return (
+    (sameCategory(left, right) && sameMaterialType(left, right))
+    || Boolean(leftCodeType && leftCodeType === rightCodeType)
+  )
+}
+
+function specDifferenceDetail(leftTokens: Set<string>, rightTokens: Set<string>) {
+  const leftOnly = Array.from(leftTokens).filter((token) => !rightTokens.has(token))
+  const rightOnly = Array.from(rightTokens).filter((token) => !leftTokens.has(token))
+  if (leftOnly.length === 0 || rightOnly.length === 0) return undefined
+  return `${leftOnly.slice(0, 3).join(', ')} vs ${rightOnly.slice(0, 3).join(', ')}`
+}
+
+function analyzeSpecRelationship(left: DuplicateMaterial, right: DuplicateMaterial, nameScore: number) {
+  const leftCodeSpec = meaningfulSpecKey(standardCodeParts(left.material_code)?.spec)
+  const rightCodeSpec = meaningfulSpecKey(standardCodeParts(right.material_code)?.spec)
+  const leftFormSpec = meaningfulSpecKey(left.code_spec_key)
+  const rightFormSpec = meaningfulSpecKey(right.code_spec_key)
+  const leftTokens = extractSpecTokens(left)
+  const rightTokens = extractSpecTokens(right)
+  const hasSameCategoryType = sameCategoryType(left, right)
+  const hasExactName = exactNameMatch(left, right)
+
+  const codeSpecDiffers = Boolean(leftCodeSpec && rightCodeSpec && leftCodeSpec !== rightCodeSpec && hasSameCategoryType)
+  const formSpecDiffers = Boolean(leftFormSpec && rightFormSpec && leftFormSpec !== rightFormSpec && hasSameCategoryType)
+  const tokenSpecDiffers = (
+    leftTokens.size > 0
+    && rightTokens.size > 0
+    && intersectValues(leftTokens, rightTokens).length === 0
+    && (hasSameCategoryType || nameScore >= 16)
+  )
+  const clearDifference = codeSpecDiffers || formSpecDiffers || tokenSpecDiffers
+  const hasComparableSpec = (
+    Boolean(leftCodeSpec || leftFormSpec || leftTokens.size > 0)
+    && Boolean(rightCodeSpec || rightFormSpec || rightTokens.size > 0)
+  )
+
+  return {
+    clearDifference,
+    hasSameCategoryType,
+    hasExactName,
+    missingOrAmbiguous: !clearDifference && !hasComparableSpec && (hasSameCategoryType || nameScore >= 16),
+    detail: specDifferenceDetail(leftTokens, rightTokens)
+      ?? (leftFormSpec && rightFormSpec && leftFormSpec !== rightFormSpec ? `${leftFormSpec} vs ${rightFormSpec}` : undefined)
+      ?? (leftCodeSpec && rightCodeSpec && leftCodeSpec !== rightCodeSpec ? `${leftCodeSpec} vs ${rightCodeSpec}` : undefined),
+  }
+}
+
 function intersectValues(left: Iterable<string>, right: Iterable<string>) {
   const rightSet = new Set(Array.from(right).filter(Boolean))
   return Array.from(left).filter((value) => rightSet.has(value))
@@ -236,14 +388,31 @@ function confidenceFromScore(score: number): DuplicateConfidence {
   return 'LOW'
 }
 
-function recommendationFromConfidence(confidence: DuplicateConfidence) {
+function recommendationFromConfidence(
+  confidence: DuplicateConfidence,
+  specRelationship?: ReturnType<typeof analyzeSpecRelationship>,
+) {
+  if (specRelationship?.clearDifference) {
+    if (specRelationship.hasExactName) {
+      return 'ชื่อเหมือนกันแต่สเปกต่างกัน ตรวจสอบก่อน'
+    }
+    if (specRelationship.hasSameCategoryType) {
+      return 'อาจเป็นวัสดุคนละตัว'
+    }
+    return 'ตรวจสอบก่อน'
+  }
+
+  if (specRelationship?.missingOrAmbiguous) {
+    return 'ข้อมูลไม่พอ ต้องตรวจสอบ'
+  }
+
   if (confidence === 'HIGH') {
-    return 'Review for merge readiness. Do not merge automatically.'
+    return 'พร้อมรวมรายการ'
   }
   if (confidence === 'MEDIUM') {
-    return 'Review material detail, supplier SKU, aliases, and BOM/BOQ usage.'
+    return 'ตรวจสอบก่อน'
   }
-  return 'Review later if cleanup scope requires it.'
+  return 'ข้อมูลไม่พอ ต้องตรวจสอบ'
 }
 
 function scorePair(left: DuplicateMaterial, right: DuplicateMaterial): DuplicateScanResult | null {
@@ -251,7 +420,7 @@ function scorePair(left: DuplicateMaterial, right: DuplicateMaterial): Duplicate
   let score = 0
 
   function add(points: number, key: string, label: string, detail?: string) {
-    if (points <= 0) return
+    if (points === 0 && reasons.some((reason) => reason.key === key && reason.detail === detail)) return
     score += points
     reasons.push({ key, label, points, detail })
   }
@@ -259,27 +428,29 @@ function scorePair(left: DuplicateMaterial, right: DuplicateMaterial): Duplicate
   const leftCodeGroup = standardCodeGroup(left.material_code)
   const rightCodeGroup = standardCodeGroup(right.material_code)
   if (leftCodeGroup && leftCodeGroup === rightCodeGroup) {
-    add(25, 'same_code_group', 'Same CATEGORY-TYPE-SPEC code group', leftCodeGroup)
+    add(25, 'same_code_group', 'กลุ่มรหัส CATEGORY-TYPE-SPEC เดียวกัน', leftCodeGroup)
   }
 
-  if ((left.category_id && left.category_id === right.category_id) || (left.cat_id && left.cat_id === right.cat_id)) {
-    add(10, 'same_category', 'Same category', left.category?.cat_name_th ?? left.cat_id ?? undefined)
+  if (sameCategory(left, right)) {
+    add(10, 'same_category', 'หมวดหมู่เดียวกัน', left.category?.cat_name_th ?? left.cat_id ?? undefined)
   }
 
-  if (left.material_type_id && left.material_type_id === right.material_type_id) {
-    add(20, 'same_material_type', 'Same material type', left.material_type?.name ?? undefined)
+  if (sameMaterialType(left, right)) {
+    add(20, 'same_material_type', 'ชนิดวัสดุเดียวกัน', left.material_type?.name ?? undefined)
   }
 
-  if (left.code_spec_key && upperCode(left.code_spec_key) === upperCode(right.code_spec_key)) {
-    add(20, 'same_spec_key', 'Same code spec key', upperCode(left.code_spec_key))
+  const leftSpecKey = meaningfulSpecKey(left.code_spec_key)
+  const rightSpecKey = meaningfulSpecKey(right.code_spec_key)
+  if (leftSpecKey && leftSpecKey === rightSpecKey) {
+    add(20, 'same_spec_key', 'Spec key เดียวกัน', leftSpecKey)
   }
 
   const nameScore = namePoints(left, right)
-  add(nameScore, 'similar_name', 'Similar material name', nameScore >= 16 ? 'Strong name match' : 'Partial name match')
+  add(nameScore, 'similar_name', 'ชื่อวัสดุใกล้เคียงกัน', nameScore >= 16 ? 'ชื่อเหมือนหรือใกล้เคียงมาก' : 'ชื่อคล้ายบางส่วน')
 
   const sharedAliases = intersectValues(getAliases(left), getAliases(right))
   if (sharedAliases.length > 0) {
-    add(20, 'shared_alias', 'Shared alias', sharedAliases.slice(0, 3).join(', '))
+    add(20, 'shared_alias', 'Alias ตรงกัน', sharedAliases.slice(0, 3).join(', '))
   } else {
     let bestAliasSimilarity = 0
     for (const leftAlias of getAliases(left)) {
@@ -288,38 +459,53 @@ function scorePair(left: DuplicateMaterial, right: DuplicateMaterial): Duplicate
       }
     }
     if (bestAliasSimilarity >= 0.75) {
-      add(12, 'similar_alias', 'Similar alias')
+      add(12, 'similar_alias', 'Alias ใกล้เคียงกัน')
     }
   }
 
   const sharedSkus = intersectValues(getSupplierSkus(left), getSupplierSkus(right))
   if (sharedSkus.length > 0) {
-    add(30, 'same_supplier_sku', 'Same supplier SKU', sharedSkus.slice(0, 3).join(', '))
+    add(30, 'same_supplier_sku', 'Supplier SKU เดียวกัน', sharedSkus.slice(0, 3).join(', '))
   }
 
   if (sameNonEmpty(left.brand, right.brand)) {
-    add(8, 'same_brand', 'Same brand', left.brand ?? undefined)
+    add(8, 'same_brand', 'ยี่ห้อเดียวกัน', left.brand ?? undefined)
   }
   if (sameNonEmpty(left.model, right.model)) {
-    add(8, 'same_model', 'Same model', left.model ?? undefined)
+    add(8, 'same_model', 'รุ่นเดียวกัน', left.model ?? undefined)
   }
   if (sameNonEmpty(left.spec, right.spec)) {
-    add(9, 'same_spec', 'Same spec', left.spec ?? undefined)
+    add(9, 'same_spec', 'สเปกเดียวกัน', left.spec ?? undefined)
   } else {
     const specScore = textSimilarity(left.spec, right.spec)
-    if (specScore >= 0.65) add(6, 'similar_spec', 'Similar spec')
+    if (specScore >= 0.65) add(6, 'similar_spec', 'สเปกใกล้เคียงกัน')
   }
 
   if ((left.base_uom_id && left.base_uom_id === right.base_uom_id) || sameNonEmpty(left.base_uom, right.base_uom)) {
-    add(5, 'same_base_uom', 'Same base UOM', left.base_uom ?? left.uom?.uom_code ?? undefined)
+    add(5, 'same_base_uom', 'หน่วยนับหลักเดียวกัน', left.base_uom ?? left.uom?.uom_code ?? undefined)
   }
 
   const sharedDimensions = intersectValues(extractDimensions(left), extractDimensions(right))
   if (sharedDimensions.length > 0) {
-    add(10, 'same_dimensions', 'Same important dimensions', sharedDimensions.slice(0, 4).join(', '))
+    add(10, 'same_dimensions', 'ขนาดสำคัญตรงกัน', sharedDimensions.slice(0, 4).join(', '))
   }
 
-  score = Math.min(100, score)
+  const specRelationship = analyzeSpecRelationship(left, right, nameScore)
+  if (specRelationship.clearDifference) {
+    add(-30, 'different_spec', 'สเปกต่างกัน', specRelationship.detail)
+    if (specRelationship.hasExactName) {
+      add(-10, 'same_name_different_spec', 'ชื่อเหมือนกันแต่สเปกต่างกัน', specRelationship.detail)
+    }
+  } else if (specRelationship.missingOrAmbiguous) {
+    add(0, 'ambiguous_spec', 'ข้อมูลสเปกไม่พอ', 'ต้องตรวจสอบก่อนรวมรายการ')
+  }
+
+  score = Math.min(100, Math.max(0, score))
+  if (specRelationship.clearDifference) {
+    score = Math.min(score, specRelationship.hasExactName ? 69 : 54)
+  } else if (specRelationship.missingOrAmbiguous && sharedSkus.length === 0 && sharedAliases.length === 0) {
+    score = Math.min(score, 69)
+  }
   if (score < 35) return null
 
   const materialIds = [left.material_id, right.material_id].sort() as [string, string]
@@ -330,7 +516,7 @@ function scorePair(left: DuplicateMaterial, right: DuplicateMaterial): Duplicate
     score,
     confidence_level: confidence,
     matched_reasons: reasons,
-    recommended_action: recommendationFromConfidence(confidence),
+    recommended_action: recommendationFromConfidence(confidence, specRelationship),
   }
 }
 
@@ -695,6 +881,26 @@ export async function saveMaterialDuplicateDecision(
     const notFound = new Error('Duplicate group not found')
     notFound.name = 'NotFoundError'
     throw notFound
+  }
+
+  if (input.decision === 'MERGE_READY') {
+    const { data: candidates, error: candidateError } = await supabase
+      .from('material_duplicate_candidates')
+      .select('matched_reasons')
+      .eq('group_id', input.groupId)
+
+    if (candidateError) throw new Error(candidateError.message)
+
+    const hasSpecRisk = (candidates ?? []).some((candidate: any) => (
+      Array.isArray(candidate.matched_reasons)
+      && candidate.matched_reasons.some((reason: any) => SPEC_RISK_REASON_KEYS.has(reason?.key))
+    ))
+
+    if (hasSpecRisk) {
+      const validation = new Error('Cannot mark as Merge Ready because specs differ or are ambiguous.')
+      validation.name = 'ValidationError'
+      throw validation
+    }
   }
 
   const { data: decision, error: decisionError } = await supabase

@@ -49,6 +49,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     if ((error as Error).name === 'NotFoundError') {
       return notFoundError('Duplicate group not found')
     }
+    if ((error as Error).name === 'ValidationError') {
+      return validationError({ decision: [(error as Error).message] }, (error as Error).message)
+    }
 
     return databaseError('Could not save duplicate decision', {
       message: (error as Error).message,
