@@ -20,6 +20,8 @@ type ImportStage =
   | 'success'
   | 'error'
 
+type ProgressStage = 'creating_draft' | 'uploading_file' | 'extracting_ai' | 'redirecting'
+
 const stageText: Record<ImportStage, string> = {
   idle: 'เลือกไฟล์สลิปเพื่อเริ่มนำเข้า',
   file_selected: 'เลือกไฟล์แล้ว พร้อมสร้าง Draft',
@@ -31,11 +33,11 @@ const stageText: Record<ImportStage, string> = {
   error: 'ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือสร้าง Draft เปล่า',
 }
 
-const progressSteps: Array<{ stage: ImportStage; label: string }> = [
-  { stage: 'creating_draft', label: 'กำลังสร้าง Draft...' },
-  { stage: 'uploading_file', label: 'กำลังอัปโหลดไฟล์...' },
-  { stage: 'extracting_ai', label: 'กำลังอ่านสลิปด้วย AI...' },
-  { stage: 'redirecting', label: 'กำลังเปิดหน้าตรวจสอบ...' },
+const progressSteps: Array<{ stage: ProgressStage; plannedLabel: string; activeLabel: string }> = [
+  { stage: 'creating_draft', plannedLabel: 'สร้าง Draft', activeLabel: 'กำลังสร้าง Draft...' },
+  { stage: 'uploading_file', plannedLabel: 'อัปโหลดไฟล์', activeLabel: 'กำลังอัปโหลดไฟล์...' },
+  { stage: 'extracting_ai', plannedLabel: 'อ่านสลิปด้วย AI', activeLabel: 'กำลังอ่านสลิปด้วย AI...' },
+  { stage: 'redirecting', plannedLabel: 'เปิดหน้าตรวจสอบ', activeLabel: 'กำลังเปิดหน้าตรวจสอบ...' },
 ]
 
 const missingReceiptIdMessage = 'สร้าง Draft สำเร็จไม่สมบูรณ์: ไม่พบรหัสสลิป กรุณาเปิดรายการนำเข้าราคาจากสลิปอีกครั้ง'
@@ -48,10 +50,12 @@ type ReceiptImportNotice = {
 export function ReceiptCreateDraftForm() {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const activeImportStageRef = useRef<ProgressStage>('creating_draft')
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
   const [creating, setCreating] = useState<'ai' | 'blank' | null>(null)
   const [stage, setStage] = useState<ImportStage>('idle')
+  const [failedStage, setFailedStage] = useState<ProgressStage | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -63,23 +67,47 @@ export function ReceiptCreateDraftForm() {
   }
 
   function selectFile(nextFile: File | null) {
+    if (creating) return
     const fileError = validateFile(nextFile)
     setError(fileError)
     setSuccess(null)
-    setStage(fileError ? 'error' : 'file_selected')
+    setFailedStage(null)
+    setStage(fileError ? 'idle' : 'file_selected')
     setFile(fileError ? null : nextFile)
+  }
+
+  function clearSelectedFile() {
+    setFile(null)
+    setError(null)
+    setSuccess(null)
+    setFailedStage(null)
+    setStage('idle')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  function setImportStage(nextStage: ProgressStage) {
+    activeImportStageRef.current = nextStage
+    setStage(nextStage)
+  }
+
+  function failImport(message: string, failedAt: ProgressStage = activeImportStageRef.current) {
+    setStage('error')
+    setFailedStage(failedAt)
+    setError(message)
   }
 
   function onDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault()
     setDragging(false)
+    if (creating) return
     selectFile(event.dataTransfer.files?.[0] ?? null)
   }
 
   async function createBlankDraft() {
     if (creating) return
     setCreating('blank')
-    setStage('creating_draft')
+    setImportStage('creating_draft')
+    setFailedStage(null)
     setSuccess(null)
     setError(null)
     let didRedirect = false
@@ -91,22 +119,19 @@ export function ReceiptCreateDraftForm() {
       })
       const json = await res.json()
       if (!res.ok) {
-        setStage('error')
-        setError(json.error ?? 'สร้าง Draft ไม่สำเร็จ')
+        failImport(json.error ?? 'สร้าง Draft ไม่สำเร็จ', 'creating_draft')
         return
       }
       const receiptId = getReceiptId(json)
       if (!receiptId) {
-        setStage('error')
-        setError(missingReceiptIdMessage)
+        failImport(missingReceiptIdMessage, 'creating_draft')
         return
       }
-      setStage('redirecting')
+      setImportStage('redirecting')
       didRedirect = true
       router.push(`/receipts/${receiptId}`)
     } catch {
-      setStage('error')
-      setError('สร้าง Draft ไม่สำเร็จ กรุณาลองใหม่')
+      failImport('สร้าง Draft ไม่สำเร็จ กรุณาลองใหม่', 'creating_draft')
     } finally {
       if (!didRedirect) setCreating(null)
     }
@@ -116,19 +141,27 @@ export function ReceiptCreateDraftForm() {
     if (creating) return
     const fileError = validateFile(file)
     if (fileError) {
-      setStage('error')
+      setFailedStage(null)
+      setStage('idle')
       setError(fileError)
       return
     }
 
     setCreating('ai')
-    setStage('creating_draft')
+    setImportStage('creating_draft')
+    setFailedStage(null)
     setSuccess(null)
     setError(null)
     let didRedirect = false
     const timers = [
-      window.setTimeout(() => setStage((current) => current === 'creating_draft' ? 'uploading_file' : current), 350),
-      window.setTimeout(() => setStage((current) => current === 'uploading_file' || current === 'creating_draft' ? 'extracting_ai' : current), 900),
+      window.setTimeout(() => {
+        if (activeImportStageRef.current === 'creating_draft') setImportStage('uploading_file')
+      }, 350),
+      window.setTimeout(() => {
+        if (activeImportStageRef.current === 'uploading_file' || activeImportStageRef.current === 'creating_draft') {
+          setImportStage('extracting_ai')
+        }
+      }, 900),
     ]
     try {
       const form = new FormData()
@@ -141,15 +174,13 @@ export function ReceiptCreateDraftForm() {
       })
       const json = await res.json()
       if (!res.ok) {
-        setStage('error')
-        setError(`${json.error ?? 'สร้าง Draft และอ่านด้วย AI ไม่สำเร็จ'} กรุณาลองใหม่ หรือกดสร้าง Draft เปล่าเพื่อกรอกข้อมูลเอง`)
+        failImport(`${json.error ?? 'สร้าง Draft และอ่านด้วย AI ไม่สำเร็จ'} กรุณาลองใหม่ หรือกดสร้าง Draft เปล่าเพื่อกรอกข้อมูลเอง`)
         return
       }
 
       const receiptId = getReceiptId(json)
       if (!receiptId) {
-        setStage('error')
-        setError(missingReceiptIdMessage)
+        failImport(missingReceiptIdMessage)
         return
       }
 
@@ -158,12 +189,11 @@ export function ReceiptCreateDraftForm() {
       const notice = buildReviewNotice(aiStatus, message)
       setSuccess(notice?.text ?? 'สร้าง Draft สำเร็จ')
       storeReceiptImportNotice(receiptId, notice)
-      setStage('redirecting')
+      setImportStage('redirecting')
       didRedirect = true
       router.push(`/receipts/${receiptId}`)
     } catch {
-      setStage('error')
-      setError('ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือสร้าง Draft เปล่า')
+      failImport('ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือสร้าง Draft เปล่า')
     } finally {
       timers.forEach((timer) => window.clearTimeout(timer))
       if (!didRedirect) setCreating(null)
@@ -171,20 +201,13 @@ export function ReceiptCreateDraftForm() {
   }
 
   const isBusy = Boolean(creating)
+  const hasStartedImport = isBusy || Boolean(failedStage) || stage === 'success'
   const currentStageIndex = progressSteps.findIndex((step) => step.stage === stage)
+  const failedStageIndex = failedStage ? progressSteps.findIndex((step) => step.stage === failedStage) : -1
+  const progressIndex = failedStageIndex >= 0 ? failedStageIndex : currentStageIndex
 
   return (
     <div className="space-y-5">
-      <div className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
-        stage === 'error'
-          ? 'border-red-200 bg-red-50 text-red-700'
-          : stage === 'success'
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            : 'border-blue-100 bg-blue-50 text-blue-900'
-      }`}>
-        {error || success || stageText[stage]}
-      </div>
-
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div>
@@ -197,14 +220,17 @@ export function ReceiptCreateDraftForm() {
             <div
               onDragOver={(event) => {
                 event.preventDefault()
+                if (isBusy) return
                 setDragging(true)
               }}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
-              className={`mt-5 flex min-h-72 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed px-6 py-10 text-center transition ${
-                dragging ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/60'
+              className={`mt-5 flex min-h-72 flex-col items-center justify-center rounded-3xl border-2 border-dashed px-6 py-10 text-center transition ${
+                isBusy ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-80' : dragging ? 'cursor-pointer border-blue-500 bg-blue-50' : 'cursor-pointer border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/60'
               }`}
-              onClick={() => inputRef.current?.click()}
+              onClick={() => {
+                if (!isBusy) inputRef.current?.click()
+              }}
             >
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-950 text-2xl text-white">
                 ↑
@@ -212,11 +238,39 @@ export function ReceiptCreateDraftForm() {
               <h3 className="mt-4 text-lg font-bold text-blue-950">ลากไฟล์มาวาง หรือเลือกไฟล์</h3>
               <p className="mt-2 text-sm text-slate-500">รองรับ JPG, PNG, PDF ขนาดไม่เกิน 10 MB</p>
               {file && (
-                <div className="mt-5 rounded-2xl border border-blue-100 bg-white px-4 py-3 text-left shadow-sm">
-                  <p className="text-xs font-bold text-emerald-700">เลือกไฟล์แล้ว</p>
-                  <p className="max-w-md truncate text-sm font-bold text-blue-950">{file.name}</p>
-                  <p className="mt-1 text-xs text-slate-500">{formatFileSize(file.size)}</p>
-                  <p className="mt-2 text-xs font-semibold text-blue-700">พร้อมสร้าง Draft</p>
+                <div className="mt-5 w-full max-w-lg rounded-2xl border border-blue-100 bg-white px-4 py-3 text-left shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-emerald-700">พร้อมสร้าง Draft</p>
+                      <p className="max-w-md truncate text-sm font-bold text-blue-950">{file.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{formatFileSize(file.size)}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (inputRef.current) inputRef.current.value = ''
+                          inputRef.current?.click()
+                        }}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        เปลี่ยนไฟล์
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          clearSelectedFile()
+                        }}
+                        className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                      >
+                        ลบไฟล์
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
               <input
@@ -224,6 +278,7 @@ export function ReceiptCreateDraftForm() {
                 type="file"
                 accept="image/jpeg,image/png,application/pdf"
                 className="sr-only"
+                disabled={isBusy}
                 onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
               />
             </div>
@@ -247,20 +302,27 @@ export function ReceiptCreateDraftForm() {
               ถ้ายังไม่ต้องการใช้ AI สามารถสร้าง Draft เปล่า แล้วกรอกข้อมูลเองในหน้าตรวจสอบได้
             </div>
             <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
-              <p className="text-sm font-bold text-blue-950">สถานะการนำเข้า</p>
+              <p className="text-sm font-bold text-blue-950">
+                {hasStartedImport ? 'สถานะการนำเข้า' : 'ขั้นตอนหลังจากกดนำเข้า'}
+              </p>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                {hasStartedImport ? stageText[stage] : 'ระบบจะทำตามขั้นตอนนี้ แล้วพาไปหน้าตรวจสอบ Draft'}
+              </p>
               <div className="mt-3 space-y-2">
                 {progressSteps.map((step, index) => {
-                  const isDone = currentStageIndex > index || stage === 'success' || stage === 'redirecting'
-                  const isActive = step.stage === stage
+                  const isFailed = failedStage === step.stage
+                  const isDone = hasStartedImport && !isFailed && (progressIndex > index || stage === 'success')
+                  const isActive = hasStartedImport && !isFailed && step.stage === stage
+                  const label = hasStartedImport && isActive ? step.activeLabel : step.plannedLabel
                   return (
                     <div key={step.stage} className="flex items-center gap-2 text-sm">
                       <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-                        isDone ? 'bg-emerald-100 text-emerald-700' : isActive ? 'bg-blue-950 text-white' : 'bg-slate-100 text-slate-400'
+                        isFailed ? 'bg-red-100 text-red-700' : isDone ? 'bg-emerald-100 text-emerald-700' : isActive ? 'bg-blue-950 text-white' : 'bg-slate-100 text-slate-400'
                       }`}>
-                        {isDone ? '✓' : index + 1}
+                        {isFailed ? '!' : isDone ? '✓' : index + 1}
                       </span>
-                      <span className={isActive ? 'font-bold text-blue-950' : isDone ? 'font-semibold text-emerald-700' : 'text-slate-500'}>
-                        {step.label}
+                      <span className={isFailed ? 'font-bold text-red-700' : isActive ? 'font-bold text-blue-950' : isDone ? 'font-semibold text-emerald-700' : 'text-slate-500'}>
+                        {label}
                       </span>
                     </div>
                   )
@@ -270,15 +332,31 @@ export function ReceiptCreateDraftForm() {
           </aside>
         </div>
 
+        {(error || success) && (
+          <div className={`mt-6 rounded-2xl border px-4 py-3 text-sm font-semibold ${
+            error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          }`}>
+            {error ? (
+              <>
+                <p>สร้าง Draft ไม่สำเร็จ</p>
+                <p className="mt-1 font-medium">{error}</p>
+              </>
+            ) : success}
+          </div>
+        )}
+
         <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-end">
-          <button type="button" onClick={() => router.push('/receipts')} className="btn-secondary">
+          <div className="text-sm font-semibold text-slate-500 sm:mr-auto">
+            {isBusy ? stageText[stage] : file ? 'พร้อมสร้าง Draft' : 'กรุณาเลือกไฟล์สลิปก่อน'}
+          </div>
+          <button type="button" onClick={() => router.push('/receipts')} disabled={isBusy} className="btn-secondary">
             ยกเลิก
           </button>
           <button type="button" onClick={createBlankDraft} disabled={isBusy} className="btn-secondary">
             {creating === 'blank' ? 'กำลังสร้าง...' : 'สร้าง Draft เปล่า'}
           </button>
           <button type="button" onClick={createDraftAndReadAi} disabled={isBusy || !file} className="btn-primary">
-            {creating === 'ai' ? 'กำลังอ่านสลิปด้วย AI...' : 'สร้าง Draft และอ่านด้วย AI'}
+            {creating === 'ai' ? 'กำลังนำเข้า...' : 'สร้าง Draft และอ่านด้วย AI'}
           </button>
         </div>
       </section>
