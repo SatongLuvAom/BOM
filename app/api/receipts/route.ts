@@ -26,6 +26,10 @@ function receiptError(error: unknown) {
   })
 }
 
+function getReceiptRedirectPath(receiptId: string) {
+  return `/receipts/${encodeURIComponent(receiptId)}`
+}
+
 export async function GET(req: NextRequest) {
   const owner = await requireOwnerApi()
   if (owner instanceof NextResponse) return owner
@@ -74,7 +78,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       receiptId: data.id,
-      redirectTo: `/receipts/${data.id}`,
+      redirectTo: getReceiptRedirectPath(data.id),
       data,
     }, { status: 201 })
   } catch (error) {

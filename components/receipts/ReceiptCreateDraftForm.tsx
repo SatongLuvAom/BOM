@@ -40,7 +40,7 @@ const progressSteps: Array<{ stage: ProgressStage; plannedLabel: string; activeL
   { stage: 'redirecting', plannedLabel: 'เปิดหน้าตรวจสอบ', activeLabel: 'กำลังเปิดหน้าตรวจสอบ...' },
 ]
 
-const missingReceiptIdMessage = 'สร้าง Draft สำเร็จไม่สมบูรณ์: ไม่พบรหัสสลิป กรุณาเปิดรายการนำเข้าราคาจากสลิปอีกครั้ง'
+const missingReceiptIdMessage = 'สร้าง Draft แล้ว แต่ไม่พบรหัสสลิปสำหรับเปิดหน้าตรวจสอบ กรุณาไปที่รายการนำเข้าราคาจากสลิป'
 
 type ReceiptImportNotice = {
   type: 'message' | 'warning'
@@ -103,7 +103,8 @@ export function ReceiptCreateDraftForm() {
     selectFile(event.dataTransfer.files?.[0] ?? null)
   }
 
-  async function createBlankDraft() {
+  async function createBlankDraft(event?: React.MouseEvent<HTMLButtonElement>) {
+    event?.preventDefault()
     if (creating) return
     setCreating('blank')
     setImportStage('creating_draft')
@@ -122,14 +123,14 @@ export function ReceiptCreateDraftForm() {
         failImport(json.error ?? 'สร้าง Draft ไม่สำเร็จ', 'creating_draft')
         return
       }
-      const receiptId = getReceiptId(json)
-      if (!receiptId) {
+      const targetPath = getReceiptReviewPath(getReceiptId(json))
+      if (!targetPath) {
         failImport(missingReceiptIdMessage, 'creating_draft')
         return
       }
       setImportStage('redirecting')
       didRedirect = true
-      router.push(`/receipts/${receiptId}`)
+      router.push(targetPath)
     } catch {
       failImport('สร้าง Draft ไม่สำเร็จ กรุณาลองใหม่', 'creating_draft')
     } finally {
@@ -137,7 +138,8 @@ export function ReceiptCreateDraftForm() {
     }
   }
 
-  async function createDraftAndReadAi() {
+  async function createDraftAndReadAi(event?: React.MouseEvent<HTMLButtonElement>) {
+    event?.preventDefault()
     if (creating) return
     const fileError = validateFile(file)
     if (fileError) {
@@ -179,7 +181,8 @@ export function ReceiptCreateDraftForm() {
       }
 
       const receiptId = getReceiptId(json)
-      if (!receiptId) {
+      const targetPath = getReceiptReviewPath(receiptId)
+      if (!targetPath) {
         failImport(missingReceiptIdMessage)
         return
       }
@@ -191,7 +194,7 @@ export function ReceiptCreateDraftForm() {
       storeReceiptImportNotice(receiptId, notice)
       setImportStage('redirecting')
       didRedirect = true
-      router.push(`/receipts/${receiptId}`)
+      router.push(targetPath)
     } catch {
       failImport('ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือสร้าง Draft เปล่า')
     } finally {
@@ -349,7 +352,15 @@ export function ReceiptCreateDraftForm() {
           <div className="text-sm font-semibold text-slate-500 sm:mr-auto">
             {isBusy ? stageText[stage] : file ? 'พร้อมสร้าง Draft' : 'กรุณาเลือกไฟล์สลิปก่อน'}
           </div>
-          <button type="button" onClick={() => router.push('/receipts')} disabled={isBusy} className="btn-secondary">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              if (!isBusy) router.push('/receipts')
+            }}
+            disabled={isBusy}
+            className="btn-secondary"
+          >
             ยกเลิก
           </button>
           <button type="button" onClick={createBlankDraft} disabled={isBusy} className="btn-secondary">
@@ -371,6 +382,14 @@ function formatFileSize(bytes: number) {
 
 function getReceiptId(response: any) {
   return response?.receiptId ?? response?.data?.id ?? response?.data?.receipt?.id ?? null
+}
+
+function getReceiptReviewPath(receiptId: unknown) {
+  if (typeof receiptId !== 'string') return null
+  const cleanId = receiptId.trim()
+  if (!/^[A-Za-z0-9-]{8,80}$/.test(cleanId)) return null
+  const targetPath = `/receipts/${encodeURIComponent(cleanId)}`
+  return targetPath.startsWith('/receipts/') ? targetPath : null
 }
 
 function buildReviewNotice(aiStatus: string, message: string | null): ReceiptImportNotice | null {

@@ -48,6 +48,10 @@ function validateImportFile(file: File) {
   return null
 }
 
+function getReceiptRedirectPath(receiptId: string) {
+  return `/receipts/${encodeURIComponent(receiptId)}`
+}
+
 function importResponse(input: {
   receipt: any
   items: any[]
@@ -60,7 +64,7 @@ function importResponse(input: {
   return NextResponse.json({
     ok: true,
     receiptId,
-    redirectTo: receiptId ? `/receipts/${receiptId}` : null,
+    redirectTo: receiptId ? getReceiptRedirectPath(receiptId) : null,
     status: input.receipt?.status ?? 'draft',
     aiStatus: input.aiStatus,
     message: input.message,
