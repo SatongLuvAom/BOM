@@ -156,6 +156,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     }
 
     const controller = new AbortController()
+    let active = true
     const timer = window.setTimeout(async () => {
       setPreviewLoading(true)
       try {
@@ -177,17 +178,18 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           signal: controller.signal,
         })
         const json = await res.json()
-        if (res.ok) {
+        if (active && res.ok) {
           setCodePreview(json.data.preview)
         }
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') setCodePreview('')
+        if (active && (err as Error).name !== 'AbortError') setCodePreview('')
       } finally {
-        setPreviewLoading(false)
+        if (active) setPreviewLoading(false)
       }
     }, 250)
 
     return () => {
+      active = false
       controller.abort()
       window.clearTimeout(timer)
     }
@@ -203,6 +205,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     }
 
     const controller = new AbortController()
+    let active = true
     const timer = window.setTimeout(async () => {
       setDuplicateCheckLoading(true)
       setDuplicateCheckError('')
@@ -228,20 +231,21 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         })
         const json = await res.json()
         if (!res.ok) {
-          setDuplicateCheckError(json.error ?? 'ตรวจวัสดุซ้ำไม่สำเร็จ')
+          if (active) setDuplicateCheckError(json.error ?? 'ตรวจวัสดุซ้ำไม่สำเร็จ')
           return
         }
-        setDuplicateWarnings(json.data ?? [])
+        if (active) setDuplicateWarnings(json.data ?? [])
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
+        if (active && (err as Error).name !== 'AbortError') {
           setDuplicateCheckError((err as Error).message)
         }
       } finally {
-        setDuplicateCheckLoading(false)
+        if (active) setDuplicateCheckLoading(false)
       }
     }, 600)
 
     return () => {
+      active = false
       controller.abort()
       window.clearTimeout(timer)
     }
@@ -341,6 +345,8 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         : getMaterialRouteId(material!)
 
       router.push(`/materials/${id}`)
+    } catch (err) {
+      setError((err as Error).message || 'Save failed')
     } finally {
       setSaving(false)
     }

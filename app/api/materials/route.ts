@@ -10,11 +10,16 @@ import { resolveMaterialSearchMatches, sortRowsBySearchRank } from '@/lib/server
 import { databaseError, duplicateError, validationError } from '@/lib/api/responses'
 import { inferSpecKeyFromMaterialText, sanitizeSpecKey } from '@/lib/material-code'
 import { resolveMaterialTypeForCode } from '@/lib/server/material-type-default'
-import { generateMaterialCodeForCreate, getNextMaterialCodeFromExistingRows } from '@/lib/server/material-code-generator'
+import { generateMaterialCodeForCreate } from '@/lib/server/material-code-generator'
 
 type MaterialSortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
 
 const MATERIAL_SORT_KEYS: MaterialSortKey[] = ['material_code', 'material_id', 'mat_name_th', 'brand', 'status', 'updated_at']
+const MATERIAL_WRITE_SELECT = `
+  id, material_id, material_code, cat_id, category_id, material_type_id, code_spec_key,
+  mat_name_th, mat_name_en, normalized_name, spec, brand, model, base_uom, base_uom_id,
+  status, note, code_locked, code_generated_at, code_rule_version, created_at, updated_at
+`
 
 // GET /api/materials?search=&cat_id=&status=&page=1&limit=20&sort_by=updated_at&sort_dir=desc
 export async function GET(req: NextRequest) {
@@ -213,8 +218,8 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  let materialCode = generatedCode.data.code
-  let nextNo = generatedCode.data.nextNo
+  let generatedCodeData = generatedCode.data
+  let materialCode = generatedCodeData.code
 
   for (let attempt = 0; attempt < 25; attempt += 1) {
     const { data: codeExisting, error: codeCheckError } = await supabase
@@ -231,19 +236,18 @@ export async function POST(req: NextRequest) {
       break
     }
 
-    const fallbackCode = await getNextMaterialCodeFromExistingRows(supabase, {
-      categoryPrefix: generatedCode.data.categoryPrefix,
-      typePrefix: generatedCode.data.typePrefix,
-      specKey: generatedCode.data.specKey,
-      minNo: nextNo + 1,
+    const retryCode = await generateMaterialCodeForCreate(supabase, {
+      categoryPrefix: generatedCodeData.categoryPrefix,
+      typePrefix: generatedCodeData.typePrefix,
+      specKey: generatedCodeData.specKey,
     })
 
-    if (!fallbackCode.data) {
-      return databaseError('Could not generate fallback material code', { message: fallbackCode.error ?? undefined })
+    if (!retryCode.data) {
+      return databaseError('Could not generate retry material code', { message: retryCode.error ?? undefined })
     }
 
-    materialCode = fallbackCode.data.code
-    nextNo = fallbackCode.data.nextNo
+    generatedCodeData = retryCode.data
+    materialCode = generatedCodeData.code
   }
 
   const { data: duplicateAfterRetry } = await supabase
@@ -271,12 +275,12 @@ export async function POST(req: NextRequest) {
       category_id: cat.id,
       base_uom_id: uom.id,
       material_type_id: materialType.id ?? null,
-      code_spec_key: codeSpecKey,
+      code_spec_key: generatedCodeData.specKey,
       code_locked: true,
       code_generated_at: new Date().toISOString(),
       code_rule_version: 'v1',
     })
-    .select()
+    .select(MATERIAL_WRITE_SELECT)
     .single()
 
   if (error) {

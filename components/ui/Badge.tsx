@@ -26,7 +26,7 @@ export function Badge({ label, color = 'gray', className }: BadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-lg px-2 py-0.5 text-xs font-bold ring-1 ring-inset',
+        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-inset',
         colorMap[color],
         className,
       )}

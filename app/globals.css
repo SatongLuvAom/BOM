@@ -6,23 +6,23 @@
 
 @layer base {
   :root {
-    --app-bg: #eef3f0;
-    --app-shell: #f8f6ef;
-    --app-sidebar: #f4f1e8;
-    --app-surface: #fffdf8;
-    --app-surface-soft: #f2f6f3;
-    --app-text: #151817;
-    --app-muted: #747973;
-    --app-border: #dedbd0;
-    --app-border-strong: #c9c5b8;
-    --app-accent: #0f172a;
+    --app-bg: #f5f7fb;
+    --app-shell: #f6f8fc;
+    --app-sidebar: #ffffff;
+    --app-surface: #ffffff;
+    --app-surface-soft: #f8fafc;
+    --app-text: #0f172a;
+    --app-muted: #64748b;
+    --app-border: #e2e8f0;
+    --app-border-strong: #cbd5e1;
+    --app-accent: #0b1f5f;
     --app-cyan: #0e7490;
-    --app-emerald: #047857;
-    --app-amber: #b45309;
-    --app-danger: #b91c1c;
-    --app-success: #059669;
-    --app-shadow: 0 18px 54px rgba(15, 23, 42, 0.12);
-    --app-card-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+    --app-emerald: #059669;
+    --app-amber: #d97706;
+    --app-danger: #dc2626;
+    --app-success: #16a34a;
+    --app-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    --app-card-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
   }
 
   * {
@@ -36,10 +36,7 @@
   }
 
   body {
-    background:
-      linear-gradient(135deg, rgba(14, 116, 144, 0.08), transparent 32rem),
-      radial-gradient(circle at 100% 0%, rgba(217, 119, 6, 0.10), transparent 28rem),
-      var(--app-bg);
+    background: var(--app-bg);
     color: var(--app-text);
   }
 
@@ -73,9 +70,9 @@
 @layer components {
   /* Primary action button */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-slate-950/10
-           transition-all duration-150 hover:bg-slate-800 hover:shadow-md active:scale-[0.99] focus-visible:outline-none
-           focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-950/15
+           transition-all duration-150 hover:bg-blue-900 hover:shadow-md active:scale-[0.99] focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-blue-950 focus-visible:ring-offset-2
            disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
@@ -88,11 +85,11 @@
 
   /* Subtle card container */
   .card {
-    @apply rounded-2xl border border-stone-200 bg-[var(--app-surface)] shadow-[0_12px_34px_rgba(15,23,42,0.08)];
+    @apply rounded-2xl border border-slate-200 bg-[var(--app-surface)] shadow-[0_10px_30px_rgba(15,23,42,0.06)];
   }
 
   .soft-card {
-    @apply rounded-2xl border border-stone-200 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.06)];
+    @apply rounded-2xl border border-slate-200 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.05)];
   }
 
   .soft-pill {
@@ -100,12 +97,12 @@
   }
 
   .ops-toolbar {
-    @apply sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-[var(--app-surface)] px-5 py-3;
+    @apply flex flex-wrap items-center justify-between gap-3 border-slate-200 bg-white;
   }
 
   .ops-select {
-    @apply rounded-xl border border-stone-300 bg-white py-2 pl-3 pr-8 text-sm font-medium text-slate-700 shadow-sm transition-colors
-           hover:border-slate-300 focus:border-slate-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-950/10;
+    @apply rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-8 text-sm font-semibold text-slate-700 shadow-sm transition-colors
+           hover:border-slate-300 focus:border-blue-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-950/10;
   }
 
   .ops-icon-btn {
@@ -118,23 +115,23 @@
   }
 
   .data-table thead tr {
-    @apply border-y border-stone-200 bg-stone-100/80;
+    @apply border-y border-slate-200 bg-slate-50;
   }
 
   .data-table th {
-    @apply whitespace-nowrap px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500;
+    @apply whitespace-nowrap px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500;
   }
 
   .data-table tbody {
-    @apply divide-y divide-stone-100;
+    @apply divide-y divide-slate-100;
   }
 
   .data-table tbody tr {
-    @apply transition-colors hover:bg-cyan-50/35;
+    @apply transition-colors hover:bg-blue-50/45;
   }
 
   .data-table td {
-    @apply px-3 py-2.5 align-middle;
+    @apply px-3 py-3.5 align-middle;
   }
 }
 

@@ -10,6 +10,11 @@ import { databaseError, notFoundError, relationInUseError, validationError } fro
 import { resolveMaterialReference } from '@/lib/server/material-resolver'
 
 type Params = { params: Promise<{ id: string }> }
+const MATERIAL_WRITE_SELECT = `
+  id, material_id, material_code, cat_id, category_id, material_type_id, code_spec_key,
+  mat_name_th, mat_name_en, normalized_name, spec, brand, model, base_uom, base_uom_id,
+  status, note, code_locked, code_generated_at, code_rule_version, created_at, updated_at
+`
 
 export async function GET(_req: NextRequest, { params }: Params) {
   const owner = await requireOwnerApi()
@@ -229,7 +234,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     .update(patch)
     .eq('material_id', resolved.material_id)
     .eq('is_deleted', false)
-    .select()
+    .select(MATERIAL_WRITE_SELECT)
     .single()
 
   if (error) {

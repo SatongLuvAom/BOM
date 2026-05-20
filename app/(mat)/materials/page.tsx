@@ -1,9 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { assertSupabase } from '@/lib/supabase/assert'
-import { Header } from '@/components/layout/Header'
 import { MaterialList } from '@/components/mat/MaterialList'
-import { SearchInput } from '@/components/ui/SearchInput'
 import { Pagination } from '@/components/ui/Pagination'
 import { getPaginationRange } from '@/lib/utils'
 import { normalizeSearchTerm } from '@/lib/supabase/filters'
@@ -13,6 +11,7 @@ import { getCachedActiveCategories, getCachedActiveSuppliers } from '@/lib/serve
 import type { MatQualityScore } from '@/types/mat'
 
 type SortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
+type StatTone = 'blue' | 'orange' | 'amber' | 'green'
 
 interface PageProps {
   searchParams: Promise<{
@@ -29,6 +28,96 @@ interface PageProps {
 }
 
 export const dynamic = 'force-dynamic'
+
+const statToneClass: Record<StatTone, { icon: string; iconText: string; hint: string }> = {
+  blue: { icon: 'bg-blue-50', iconText: 'text-blue-700', hint: 'text-blue-700' },
+  orange: { icon: 'bg-orange-50', iconText: 'text-orange-600', hint: 'text-orange-600' },
+  amber: { icon: 'bg-amber-50', iconText: 'text-amber-600', hint: 'text-amber-600' },
+  green: { icon: 'bg-emerald-50', iconText: 'text-emerald-600', hint: 'text-emerald-600' },
+}
+
+function StatIcon({ tone }: { tone: StatTone }) {
+  const iconProps = {
+    width: 20,
+    height: 20,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 2,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  }
+
+  if (tone === 'orange') {
+    return (
+      <svg {...iconProps}>
+        <path d="m7 7 10 10" />
+        <path d="M11 3H5a2 2 0 0 0-2 2v6l10 10a2 2 0 0 0 3 0l5-5a2 2 0 0 0 0-3Z" />
+        <path d="M7.5 7.5h.01" />
+      </svg>
+    )
+  }
+
+  if (tone === 'amber') {
+    return (
+      <svg {...iconProps}>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 6v6l4 2" />
+      </svg>
+    )
+  }
+
+  if (tone === 'green') {
+    return (
+      <svg {...iconProps}>
+        <circle cx="12" cy="12" r="10" />
+        <path d="m9 12 2 2 4-5" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg {...iconProps}>
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <path d="M3.27 6.96 12 12.01l8.73-5.05" />
+      <path d="M12 22.08V12" />
+    </svg>
+  )
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string
+  value: number
+  hint: string
+  tone: StatTone
+}) {
+  const toneClass = statToneClass[tone]
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-4">
+        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${toneClass.icon} ${toneClass.iconText}`}>
+          <StatIcon tone={tone} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-700">{label}</p>
+          <div className="mt-1 flex items-end gap-2">
+            <p className="text-3xl font-bold leading-none tracking-tight text-blue-950">
+              {value.toLocaleString('th-TH')}
+            </p>
+            <span className="pb-1 text-xs font-semibold text-slate-400">รายการ</span>
+          </div>
+          <p className={`mt-2 text-xs font-medium ${toneClass.hint}`}>{hint}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default async function MaterialsPage({ searchParams }: PageProps) {
   const sp = await searchParams
@@ -120,10 +209,9 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
     })(),
   ])
 
-  const materials  = assertSupabase(materialsRes,  'Failed to load materials')
-  const total      = materialsRes.count ?? 0
+  const materials = assertSupabase(materialsRes, 'Failed to load materials')
+  const total = materialsRes.count ?? 0
 
-  // Fetch latest prices for the current page of materials
   const matIds = (materials as any[]).map((m) => m.material_id)
   const latestPrices: Record<string, LatestMaterialPrice> = {}
   let qualityScores: Record<string, MatQualityScore> = {}
@@ -174,53 +262,77 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
     qualityScores = buildQualityScoreMap(enrichedMaterials, latestPrices)
   }
 
+  const pageMissingPrice = matIds.filter((id) => !latestPrices[id]).length
+  const pageStalePrice = matIds.filter((id) => latestPrices[id]?.is_stale).length
+  const pageReady = matIds.filter((id) => {
+    const score = qualityScores[id]?.quality_score ?? 0
+    return score >= 85 && Boolean(latestPrices[id]) && !latestPrices[id]?.is_stale
+  }).length
+  const filteredText = search || cat_id || status || hasPrice || stalePrice || supplierId
+    ? 'ตามตัวกรองปัจจุบัน'
+    : 'ทั้งหมดในระบบ'
+
   return (
-    <div className="flex h-full flex-col">
-      <Header
-        title="วัสดุทั้งหมด"
-        subtitle={`${total.toLocaleString()} รายการ`}
-        actions={
-          <>
-            <Link href="/materials/duplicates" className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-stone-50">
-              Duplicates
+    <div className="flex min-h-full flex-col bg-slate-50">
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-6 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
+            <span>คลังวัสดุ</span>
+            <span className="text-slate-300">/</span>
+            <span className="text-blue-950">วัสดุ</span>
+          </div>
+          <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 md:inline-flex">
+            Material Master
+          </span>
+        </div>
+      </div>
+
+      <div className="mx-auto flex w-full max-w-[1500px] flex-1 flex-col gap-5 px-6 py-5">
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="วัสดุทั้งหมด" value={total} hint={filteredText} tone="blue" />
+          <StatCard label="ยังไม่มีราคา" value={pageMissingPrice} hint="นับจากรายการในหน้านี้" tone="orange" />
+          <StatCard label="ราคาต้องอัปเดต" value={pageStalePrice} hint="ราคาล่าสุดเกิน 30 วันในหน้านี้" tone="amber" />
+          <StatCard label="พร้อมใช้งาน" value={pageReady} hint="ข้อมูลพร้อมและราคายังไม่เก่าในหน้านี้" tone="green" />
+        </section>
+
+        <section className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-blue-950">วัสดุ</h1>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              ทั้งหมด {total.toLocaleString('th-TH')} รายการ
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/materials/duplicates" className="btn-secondary">
+              ตรวจวัสดุซ้ำ
             </Link>
-            <Link href="/materials/cleanup" className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-stone-50">
-              Cleanup
+            <Link href="/materials/cleanup" className="btn-secondary">
+              ตรวจข้อมูลที่ไม่ครบ
             </Link>
-            <Link href="/materials/new" className="btn-primary shadow-indigo-500/20">
+            <Link href="/materials/new" className="btn-primary">
               + เพิ่มวัสดุ
             </Link>
-          </>
-        }
-      />
-      <div className="flex flex-1 flex-col overflow-hidden px-6 pb-6 pt-4">
-        <div className="card flex-1 flex flex-col overflow-hidden">
-          <div className="flex items-center border-b border-stone-200 px-5 py-3">
-            <div className="w-full max-w-xl">
-              <SearchInput
-                placeholder="ค้นหา code, ชื่อ, alias, spec, supplier..."
-                searchOn="enter"
-                minSearchLength={2}
-              />
-            </div>
           </div>
-          <div className="flex-1 overflow-auto">
-            {search && (
-              <div className="border-b border-stone-200 bg-cyan-50/60 px-5 py-2 text-sm font-medium text-slate-700">
-                ผลการค้นหา "{search}" พบ {total.toLocaleString('th-TH')} รายการ
-                <Link href="/materials" className="ml-3 text-slate-500 underline hover:text-slate-950">
-                  ล้างคำค้น
-                </Link>
-              </div>
-            )}
-            <MaterialList
-              materials={materials as any}
-              categories={(categories as any[]).map((category) => ({ cat_id: category.cat_id, cat_name_th: category.cat_name_th }))}
-              suppliers={(suppliers as any[]).map((supplier) => ({ supplier_id: supplier.supplier_id, supplier_name_th: supplier.supplier_name_th }))}
-              latestPrices={latestPrices}
-              qualityScores={qualityScores}
-            />
+        </section>
+
+        {search && (
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-950">
+            ผลการค้นหา "{search}" พบ {total.toLocaleString('th-TH')} รายการ
+            <Link href="/materials" className="ml-3 text-blue-700 underline hover:text-blue-950">
+              ล้างคำค้น
+            </Link>
           </div>
+        )}
+
+        <div className="flex flex-1 flex-col gap-4 overflow-hidden">
+          <MaterialList
+            materials={materials as any}
+            categories={(categories as any[]).map((category) => ({ cat_id: category.cat_id, cat_name_th: category.cat_name_th }))}
+            suppliers={(suppliers as any[]).map((supplier) => ({ supplier_id: supplier.supplier_id, supplier_name_th: supplier.supplier_name_th }))}
+            latestPrices={latestPrices}
+            qualityScores={qualityScores}
+            total={total}
+          />
           <Pagination total={total} page={page} limit={limit} />
         </div>
       </div>

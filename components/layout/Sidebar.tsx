@@ -154,7 +154,7 @@ function NavIcon({ name }: { name: IconName }) {
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <p className="mb-2 mt-5 px-4 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 first:mt-2">
+    <p className="mb-2 mt-5 px-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 first:mt-2">
       {label}
     </p>
   )
@@ -175,16 +175,13 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
     <Link
       href={item.href}
       className={cn(
-        'group relative mx-3 mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-150',
+        'group relative mx-3 mb-1 flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-150',
         active
-          ? 'bg-white text-slate-950 shadow-sm ring-1 ring-stone-200'
-          : 'text-slate-500 hover:bg-white/70 hover:text-slate-950',
+          ? 'bg-blue-950 text-white shadow-sm shadow-blue-950/20'
+          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-950',
       )}
     >
-      {active && (
-        <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-cyan-600 via-slate-900 to-emerald-600" />
-      )}
-      <span className={cn('shrink-0 transition-colors duration-150', active ? 'text-cyan-700' : 'text-slate-400 group-hover:text-slate-700')}>
+      <span className={cn('shrink-0 transition-colors duration-150', active ? 'text-white' : 'text-slate-400 group-hover:text-blue-900')}>
         <NavIcon name={item.icon} />
       </span>
       {t(item.labelKey)}
@@ -205,13 +202,13 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="z-30 flex h-full w-64 flex-col border-r border-stone-300/70 bg-[var(--app-sidebar)] md:w-72">
-      <div className="flex h-20 items-center gap-4 border-b border-stone-300/60 px-6">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-sm">
+    <aside className="z-30 flex h-full w-64 flex-col border-r border-slate-200 bg-[var(--app-sidebar)] md:w-72">
+      <div className="flex h-[72px] items-center gap-3 border-b border-slate-200 px-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-950 text-white shadow-sm">
           <NavIcon name="box" />
         </div>
         <div className="flex min-w-0 flex-col">
-          <p className="truncate text-base font-bold tracking-tight text-slate-950">{t('app.name')}</p>
+          <p className="truncate text-base font-bold tracking-tight text-blue-950">{t('app.name')}</p>
           <p className="truncate text-xs font-medium text-slate-500">{t('app.subtitle')}</p>
         </div>
       </div>
@@ -233,11 +230,11 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="space-y-2 border-t border-stone-300/60 p-4">
+      <div className="space-y-2 border-t border-slate-200 p-4">
         <LanguageSwitcher compact />
-        <div className="rounded-xl border border-stone-300 bg-white p-3 shadow-sm">
-          <p className="text-xs font-semibold text-slate-800">{t('app.versionPhase')}</p>
-          <p className="mt-0.5 text-[10px] text-slate-400">{t('app.versionStatus')}</p>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-blue-950">{t('app.versionPhase')}</p>
+          <p className="mt-0.5 text-[10px] text-slate-500">{t('app.versionStatus')}</p>
         </div>
         <button
           onClick={handleLogout}
@@ -254,4 +251,3 @@ export function Sidebar() {
     </aside>
   )
 }
-

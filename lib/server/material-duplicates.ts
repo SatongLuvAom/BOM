@@ -126,6 +126,9 @@ type DuplicateMaterial = {
 const STANDARD_CODE_RE = /^([A-Z0-9]{2,5})-([A-Z0-9]{2,8})-([A-Z0-9]{2,12})-[0-9]{4}$/
 const GENERAL_SPEC_KEYS = new Set(['GEN', 'GENERAL', 'NA', 'N/A', 'NONE', '-'])
 const SPEC_RISK_REASON_KEYS = new Set(['different_spec', 'same_name_different_spec', 'ambiguous_spec'])
+const DUPLICATE_GROUP_SELECT = 'id, group_key, status, confidence_level, max_score, recommended_action, created_at, updated_at, resolved_at, resolved_by'
+const DUPLICATE_CANDIDATE_SELECT = 'id, group_id, material_id, score, matched_reasons, created_at'
+const DUPLICATE_DECISION_SELECT = 'id, group_id, decision, note, decided_by, decided_at'
 
 function firstRelation<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
@@ -916,7 +919,7 @@ export async function getMaterialDuplicateGroups(
 ): Promise<MaterialDuplicateGroup[]> {
   let groupQuery = supabase
     .from('material_duplicate_groups')
-    .select('*')
+    .select(DUPLICATE_GROUP_SELECT)
     .order('updated_at', { ascending: false })
     .limit(filters.limit ?? 300)
 
@@ -932,12 +935,12 @@ export async function getMaterialDuplicateGroups(
   const [candidateRes, decisionRes] = await Promise.all([
     supabase
       .from('material_duplicate_candidates')
-      .select('*')
+      .select(DUPLICATE_CANDIDATE_SELECT)
       .in('group_id', groupIds)
       .order('score', { ascending: false }),
     supabase
       .from('material_duplicate_decisions')
-      .select('*')
+      .select(DUPLICATE_DECISION_SELECT)
       .in('group_id', groupIds)
       .order('decided_at', { ascending: false }),
   ])
@@ -1007,7 +1010,7 @@ export async function saveMaterialDuplicateDecision(
 ) {
   const { data: before, error: beforeError } = await supabase
     .from('material_duplicate_groups')
-    .select('*')
+    .select(DUPLICATE_GROUP_SELECT)
     .eq('id', input.groupId)
     .maybeSingle()
 
@@ -1046,7 +1049,7 @@ export async function saveMaterialDuplicateDecision(
       note: input.note?.trim() || null,
       decided_by: input.decidedBy ?? null,
     })
-    .select('*')
+    .select(DUPLICATE_DECISION_SELECT)
     .single()
 
   if (decisionError) throw new Error(decisionError.message)
@@ -1060,7 +1063,7 @@ export async function saveMaterialDuplicateDecision(
       resolved_by: input.decidedBy ?? null,
     })
     .eq('id', input.groupId)
-    .select('*')
+    .select(DUPLICATE_GROUP_SELECT)
     .single()
 
   if (updateError) throw new Error(updateError.message)

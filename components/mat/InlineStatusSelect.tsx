@@ -64,7 +64,7 @@ export function InlineStatusSelect({ materialId, currentStatus }: Props) {
         value={status}
         disabled={loading}
         onChange={(event) => handleChange(event.target.value as MatStatus)}
-        className={`h-7 rounded-lg border px-2 text-xs font-semibold outline-none transition focus:ring-2 focus:ring-neutral-950/10 disabled:cursor-wait disabled:opacity-60 ${STATUS_CLASS[status]}`}
+        className={`h-7 rounded-full border px-2.5 text-xs font-semibold outline-none transition focus:ring-2 focus:ring-neutral-950/10 disabled:cursor-wait disabled:opacity-60 ${STATUS_CLASS[status]}`}
         title={`${t('common.status')}: ${loading ? '...' : text(label)}`}
       >
         {OPTIONS.map((option) => (
@@ -77,4 +77,3 @@ export function InlineStatusSelect({ materialId, currentStatus }: Props) {
     </div>
   )
 }
-

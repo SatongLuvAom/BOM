@@ -6,6 +6,9 @@ import { writeAuditLog } from '@/lib/server-utils'
 import { databaseError, duplicateError, relationInUseError, validationError } from '@/lib/api/responses'
 import { isStandardMaterialCode, sanitizeCategoryPrefix, sanitizeTypePrefix } from '@/lib/material-code'
 
+const CATEGORY_SETTINGS_SELECT = 'id, cat_id, cat_code, code_prefix, cat_name_th, cat_name_en, is_active, is_deleted, created_at, updated_at'
+const MATERIAL_TYPE_SETTINGS_SELECT = 'id, category_id, name, code_prefix, description, is_active, created_at, updated_at'
+
 const settingsSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('update_category_prefix'),
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
     const codePrefix = sanitizeCategoryPrefix(input.code_prefix)
     const { data: before } = await supabase
       .from('mat_category')
-      .select('*')
+      .select(CATEGORY_SETTINGS_SELECT)
       .eq('id', input.category_id)
       .maybeSingle()
 
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
       .from('mat_category')
       .update({ code_prefix: codePrefix, updated_at: new Date().toISOString() })
       .eq('id', input.category_id)
-      .select()
+      .select(CATEGORY_SETTINGS_SELECT)
       .single()
 
     if (error) return databaseError('Could not update category prefix', { message: error.message })
@@ -136,7 +139,7 @@ export async function POST(req: NextRequest) {
         description: input.description ?? null,
         is_active: true,
       })
-      .select()
+      .select(MATERIAL_TYPE_SETTINGS_SELECT)
       .single()
 
     if (error) return databaseError('Could not create material type', { message: error.message })
@@ -162,7 +165,7 @@ export async function POST(req: NextRequest) {
 
   const { data: before } = await supabase
     .from('material_types')
-    .select('*')
+    .select(MATERIAL_TYPE_SETTINGS_SELECT)
     .eq('id', input.id)
     .maybeSingle()
 
@@ -201,7 +204,7 @@ export async function POST(req: NextRequest) {
     .from('material_types')
     .update(patch)
     .eq('id', input.id)
-    .select()
+    .select(MATERIAL_TYPE_SETTINGS_SELECT)
     .single()
 
   if (error) {
