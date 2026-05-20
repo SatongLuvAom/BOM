@@ -13,7 +13,7 @@ import type { PurchaseReceiptItem, ReceiptSupplier, ReceiptUom } from '@/types/r
 
 type PageProps = {
   params: Promise<{ id: string }>
-  searchParams?: Promise<{ notice?: string; warning?: string }>
+  searchParams?: Promise<{ ai?: string; notice?: string; warning?: string }>
 }
 
 export const dynamic = 'force-dynamic'
@@ -73,8 +73,8 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
             initialItems={items as PurchaseReceiptItem[]}
             suppliers={(suppliersRes.data ?? []) as ReceiptSupplier[]}
             uoms={(uomsRes.data ?? []) as ReceiptUom[]}
-            initialMessage={search?.notice === 'ai_success' ? 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก' : null}
-            initialWarning={search?.warning ?? null}
+            initialMessage={getInitialReceiptMessage(search)}
+            initialWarning={getInitialReceiptWarning(search)}
           />
         </div>
       </div>
@@ -95,4 +95,21 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
     }
     throw error
   }
+}
+
+function getInitialReceiptMessage(search?: { ai?: string; notice?: string; warning?: string }) {
+  if (search?.ai === 'success' || search?.notice === 'ai_success') {
+    return 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก'
+  }
+  return null
+}
+
+function getInitialReceiptWarning(search?: { ai?: string; warning?: string }) {
+  if (search?.ai === 'missing_config') {
+    return 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY กรุณากรอกข้อมูลเอง'
+  }
+  if (search?.ai === 'failed') {
+    return search.warning || 'ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือกรอกข้อมูลเอง'
+  }
+  return search?.warning ?? null
 }

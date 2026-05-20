@@ -48,6 +48,28 @@ function validateImportFile(file: File) {
   return null
 }
 
+function importResponse(input: {
+  receipt: any
+  items: any[]
+  aiStatus: 'success' | 'missing_config' | 'failed' | 'skipped'
+  message: string
+  extraction?: unknown
+  status?: number
+}) {
+  return NextResponse.json({
+    receiptId: input.receipt?.id,
+    status: input.receipt?.status ?? 'draft',
+    aiStatus: input.aiStatus,
+    message: input.message,
+    data: {
+      receipt: input.receipt,
+      items: input.items,
+      extraction: input.extraction ?? null,
+      warning: input.aiStatus === 'success' || input.aiStatus === 'skipped' ? null : input.message,
+    },
+  }, { status: input.status ?? 201 })
+}
+
 export async function POST(req: NextRequest) {
   const owner = await requireOwnerApi()
   if (owner instanceof NextResponse) return owner
@@ -72,14 +94,22 @@ export async function POST(req: NextRequest) {
 
     if (!readAi) {
       const items = await listReceiptItems(supabase, draft.id)
-      return NextResponse.json({
-        data: {
-          receipt: attachedReceipt,
-          items,
-          extraction: null,
-          warning: null,
-        },
-      }, { status: 201 })
+      return importResponse({
+        receipt: attachedReceipt,
+        items,
+        aiStatus: 'skipped',
+        message: 'สร้าง Draft สำเร็จ',
+      })
+    }
+
+    if (!process.env.GEMINI_API_KEY?.trim()) {
+      const items = await listReceiptItems(supabase, draft.id)
+      return importResponse({
+        receipt: attachedReceipt,
+        items,
+        aiStatus: 'missing_config',
+        message: 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY กรุณากรอกข้อมูลเอง',
+      })
     }
 
     try {
@@ -87,20 +117,26 @@ export async function POST(req: NextRequest) {
         replaceItems: true,
         userId: owner.id,
       })
-      return NextResponse.json({ data }, { status: 201 })
+      return importResponse({
+        receipt: data.receipt,
+        items: data.items,
+        extraction: data.extraction,
+        aiStatus: 'success',
+        message: data.extraction?.warnings?.length
+          ? 'ระบบอ่านข้อมูลได้บางส่วน กรุณาตรวจสอบอีกครั้ง'
+          : 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก',
+      })
     } catch (error) {
       if (!(error instanceof ReceiptImportError)) throw error
 
       const items = await listReceiptItems(supabase, draft.id)
       const receipt = await getReceiptById(supabase, draft.id)
-      return NextResponse.json({
-        data: {
-          receipt,
-          items,
-          extraction: null,
-          warning: error.message,
-        },
-      }, { status: 201 })
+      return importResponse({
+        receipt,
+        items,
+        aiStatus: 'failed',
+        message: error.message || 'ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือสร้าง Draft เปล่า',
+      })
     }
   } catch (error) {
     return receiptError(error)

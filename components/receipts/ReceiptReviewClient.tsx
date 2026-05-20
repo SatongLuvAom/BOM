@@ -80,6 +80,7 @@ export function ReceiptReviewClient({
 
   const isPosted = receipt.status === 'posted'
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
+  const hasAiExtraction = Boolean(receipt.ai_raw_json || receipt.ai_raw_text)
   const postBlockers = useMemo(() => buildPostBlockers(receipt, items), [receipt, items])
 
   function setHeaderField<K extends keyof HeaderForm>(key: K, value: HeaderForm[K]) {
@@ -383,7 +384,7 @@ export function ReceiptReviewClient({
                 disabled={isPosted || readingAi || !hasReceiptFile}
                 className="rounded-xl bg-blue-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {readingAi ? 'กำลังอ่านสลิปด้วย AI...' : 'อ่านสลิปด้วย AI'}
+                {readingAi ? 'กำลังอ่านสลิปด้วย AI...' : 'อ่านสลิปด้วย AI อีกครั้ง'}
               </button>
             </div>
             {!hasReceiptFile && (
@@ -394,6 +395,11 @@ export function ReceiptReviewClient({
             <p className="mt-3 text-xs leading-5 text-blue-800">
               AI เติมข้อมูลให้เท่านั้น ยังต้องตรวจรายการ เลือกวัสดุ และกดบันทึกราคาเข้าระบบด้วยตัวเอง
             </p>
+            {!hasAiExtraction && items.length === 0 && (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+                ยังไม่มีข้อมูลจาก AI กรุณากรอกข้อมูลหัวสลิปและรายการเอง
+              </p>
+            )}
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="font-bold text-blue-950">สถานะก่อนบันทึก</h3>
