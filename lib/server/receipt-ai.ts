@@ -8,6 +8,7 @@ import {
   getReceiptById,
   listReceiptItems,
 } from '@/lib/server/receipt-import'
+import { inferReceiptItemUom } from '@/lib/server/receipt-uom'
 
 const RECEIPT_BUCKET = 'boq-attachments'
 const MAX_AI_FILE_SIZE = 10 * 1024 * 1024
@@ -104,6 +105,8 @@ type MaterialMatchRow = {
   spec: string | null
   code_spec_key: string | null
   base_uom: string | null
+  base_uom_id: string | null
+  uom?: UomRow | null
 }
 
 type UomRow = {
@@ -617,7 +620,21 @@ async function addMaterialSuggestions(supabase: any, extraction: ReceiptExtracti
   const [{ data: materials, error: materialError }, { data: uoms, error: uomError }] = await Promise.all([
     supabase
       .from('mat_master')
-      .select('id, material_id, material_code, mat_name_th, mat_name_en, normalized_name, brand, model, spec, code_spec_key, base_uom')
+      .select(`
+        id,
+        material_id,
+        material_code,
+        mat_name_th,
+        mat_name_en,
+        normalized_name,
+        brand,
+        model,
+        spec,
+        code_spec_key,
+        base_uom,
+        base_uom_id,
+        uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
+      `)
       .eq('is_deleted', false)
       .limit(2000),
     supabase
@@ -631,13 +648,7 @@ async function addMaterialSuggestions(supabase: any, extraction: ReceiptExtracti
   if (uomError) throw new ReceiptImportError(uomError.message, 500, 'DATABASE_ERROR', uomError)
 
   const materialRows = (materials ?? []) as MaterialMatchRow[]
-  const uomByKey = new Map<string, UomRow>()
-  for (const uom of (uoms ?? []) as UomRow[]) {
-    for (const value of [uom.uom_code, uom.uom_name_th]) {
-      const key = normalizeMaterialSearchText(value)
-      if (key) uomByKey.set(key, uom)
-    }
-  }
+  const uomRows = (uoms ?? []) as UomRow[]
 
   return {
     ...extraction,
@@ -650,20 +661,36 @@ async function addMaterialSuggestions(supabase: any, extraction: ReceiptExtracti
         }
       }
 
-      const uom = uomByKey.get(normalizeMaterialSearchText(item.uom))
       const highConfidence = Boolean(best && best.score >= 90 && item.unitPrice && item.unitPrice > 0)
+      const matchedMaterial = best && best.score >= 60 ? best.material : null
+      const uomInference = inferReceiptItemUom(
+        { item_name_raw: item.name, raw_text: item.rawText, uom_raw: item.uom },
+        matchedMaterial,
+        uomRows,
+        { preferMaterial: false },
+      )
+      const uomReason = uomInference.reason === 'material' || uomInference.reason === 'rule'
+        ? uomInference.reasonText
+        : null
       return {
         ...item,
-        uom: uom?.uom_code ?? item.uom,
-        uomId: uom?.id ?? null,
+        uom: uomInference.uom_raw ?? item.uom,
+        uomId: uomInference.uom_id,
         suggestedMaterialId: best && best.score >= 60 ? best.material.id : null,
         materialId: highConfidence ? best!.material.id : null,
         matchConfidence: best && best.score >= 60 ? best.score : null,
-        matchReason: best && best.score >= 60 ? best.reason : null,
+        matchReason: appendAiReason(best && best.score >= 60 ? best.reason : null, uomReason),
         action: highConfidence ? 'update_price' : 'needs_review',
       }
     }),
   }
+}
+
+function appendAiReason(existing: string | null, reason: string | null) {
+  if (!reason) return existing
+  if (!existing) return reason
+  if (existing.includes(reason)) return existing
+  return `${existing}; ${reason}`
 }
 
 export async function applyExtractionToReceiptDraft(

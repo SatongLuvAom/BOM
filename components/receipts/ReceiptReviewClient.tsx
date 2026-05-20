@@ -74,6 +74,7 @@ export function ReceiptReviewClient({
   const [posting, setPosting] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [readingAi, setReadingAi] = useState(false)
+  const [fillingUoms, setFillingUoms] = useState(false)
   const [message, setMessage] = useState<string | null>(initialMessage)
   const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
@@ -105,6 +106,18 @@ export function ReceiptReviewClient({
 
   function setItemField<K extends keyof PurchaseReceiptItem>(id: string, key: K, value: PurchaseReceiptItem[K]) {
     setItems((current) => current.map((item) => item.id === id ? { ...item, [key]: value } : item))
+    clearMessages()
+  }
+
+  function setItemUom(id: string, uomId: string) {
+    const selected = uoms.find((uom) => uom.id === uomId) ?? null
+    setItems((current) => current.map((item) => item.id === id ? {
+      ...item,
+      uom_id: uomId || null,
+      uom_raw: selected?.uom_code ?? item.uom_raw,
+      uom: selected,
+      match_reason: selected ? appendUiReason(item.match_reason, 'เลือกหน่วยเอง') : item.match_reason,
+    } : item))
     clearMessages()
   }
 
@@ -258,6 +271,24 @@ export function ReceiptReviewClient({
       )
     } finally {
       setReadingAi(false)
+    }
+  }
+
+  async function fillMissingUoms() {
+    if (isPosted || fillingUoms) return
+    setFillingUoms(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/items/autofill-uom`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'เติมหน่วยอัตโนมัติไม่สำเร็จ')
+        return
+      }
+      setItems(json.data.items ?? [])
+      setMessage(`เติมหน่วยแล้ว ${json.data.filled ?? 0} รายการ, ยังต้องตรวจสอบ ${json.data.unresolved ?? 0} รายการ`)
+    } finally {
+      setFillingUoms(false)
     }
   }
 
@@ -438,16 +469,26 @@ export function ReceiptReviewClient({
             <h2 className="text-lg font-bold text-blue-950">รายการจากสลิป</h2>
             <p className="text-sm text-slate-500">เพิ่มรายการเอง เลือกวัสดุ แล้วกำหนด action ต่อรายการ</p>
           </div>
-          <button disabled={isPosted || posting || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
-            {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {!isPosted && (
+              <button disabled={fillingUoms} type="button" onClick={fillMissingUoms} className="btn-secondary">
+                {fillingUoms ? 'กำลังเติมหน่วย...' : 'เติมหน่วยอัตโนมัติ'}
+              </button>
+            )}
+            <button disabled={isPosted || posting || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
+              {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
+            </button>
+          </div>
         </div>
 
         {!isPosted && (
           <div className="grid grid-cols-1 gap-3 border-b border-slate-100 p-4 md:grid-cols-[1.4fr_90px_110px_120px_120px_auto]">
             <input placeholder="รายการจากสลิป" value={newItem.item_name_raw} onChange={(e) => setNewItem((current) => ({ ...current, item_name_raw: e.target.value }))} className={inputClass} />
             <input placeholder="จำนวน" type="number" step="0.0001" value={newItem.qty} onChange={(e) => setNewItem((current) => ({ ...current, qty: e.target.value }))} className={inputClass} />
-            <select value={newItem.uom_id} onChange={(e) => setNewItem((current) => ({ ...current, uom_id: e.target.value }))} className={inputClass}>
+            <select value={newItem.uom_id} onChange={(e) => {
+              const selected = uoms.find((uom) => uom.id === e.target.value)
+              setNewItem((current) => ({ ...current, uom_id: e.target.value, uom_raw: selected?.uom_code ?? current.uom_raw }))
+            }} className={inputClass}>
               <option value="">หน่วย</option>
               {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
             </select>
@@ -491,10 +532,15 @@ export function ReceiptReviewClient({
                     <input disabled={isPosted} type="number" step="0.0001" value={item.qty ?? ''} onChange={(e) => setItemField(item.id, 'qty', e.target.value === '' ? null : Number(e.target.value))} className={inputClass} />
                   </td>
                   <td>
-                    <select disabled={isPosted} value={item.uom_id ?? ''} onChange={(e) => setItemField(item.id, 'uom_id', e.target.value || null)} className={inputClass}>
-                      <option value="">-</option>
-                      {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
-                    </select>
+                    <div className="space-y-1">
+                      <select disabled={isPosted} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
+                        <option value="">-</option>
+                        {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
+                      </select>
+                      <p className={`text-[11px] font-semibold ${item.uom_id ? 'text-slate-500' : 'text-amber-600'}`}>
+                        {getUomHelperText(item)}
+                      </p>
+                    </div>
                   </td>
                   <td>
                     <input disabled={isPosted} type="number" step="0.0001" value={item.unit_price ?? ''} onChange={(e) => setItemField(item.id, 'unit_price', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
@@ -507,9 +553,9 @@ export function ReceiptReviewClient({
                       item={item}
                       disabled={isPosted}
                       onSelect={(candidate) => saveItem(item, {
+                        ...buildMaterialSelectionPatch(item, candidate),
                         material_id: candidate.id,
                         match_confidence: 100,
-                        match_reason: 'manual',
                       } as any)}
                     />
                   </td>
@@ -627,6 +673,38 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+function buildMaterialSelectionPatch(item: PurchaseReceiptItem, candidate: MaterialCandidate) {
+  const materialUomId = candidate.uom?.id ?? candidate.base_uom_id ?? null
+  const materialUomRaw = candidate.uom?.uom_code ?? candidate.base_uom ?? null
+  const shouldFillUom = !item.uom_id && Boolean(materialUomId)
+  const nextReason = appendUiReason(item.match_reason, 'manual')
+
+  return {
+    uom_id: shouldFillUom ? materialUomId : item.uom_id,
+    uom_raw: shouldFillUom ? materialUomRaw : item.uom_raw,
+    match_reason: shouldFillUom ? appendUiReason(nextReason, 'ใช้หน่วยจากวัสดุ') : nextReason,
+  }
+}
+
+function getUomHelperText(item: PurchaseReceiptItem) {
+  const reason = item.match_reason ?? ''
+  if (reason.includes('ใช้หน่วยจากวัสดุ')) return 'ใช้หน่วยจากวัสดุ'
+  if (reason.includes('เลือกหน่วยเอง')) return 'เลือกหน่วยเอง'
+  if (reason.includes('เดาจากชื่อสินค้า')) return 'เดาจากชื่อสินค้า'
+  if (item.uom_id && item.uom_raw) return 'อ่านจากสลิป'
+  if (item.uom_id && item.material?.uom?.id === item.uom_id) return 'ใช้หน่วยจากวัสดุ'
+  if (item.uom_id) return 'มีหน่วยแล้ว'
+  if (item.uom_raw) return 'อ่านจากสลิป แต่ยังจับคู่หน่วยไม่ได้'
+  return 'ยังไม่พบหน่วย'
+}
+
+function appendUiReason(existing: string | null | undefined, reason: string) {
+  const current = String(existing ?? '').trim()
+  if (!current) return reason
+  if (current.includes(reason)) return current
+  return `${current}; ${reason}`
+}
+
 function toNumber(value: string) {
   return value.trim() ? Number(value) : null
 }
@@ -694,6 +772,7 @@ function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[
     }
     if (item.action === 'update_price') {
       if (!item.material_id) blockers.push(`${label} ยังไม่ได้เลือกวัสดุ`)
+      if (!item.uom_id) blockers.push(`${label} ต้องมีหน่วยก่อนบันทึก`)
       if (!item.unit_price || item.unit_price <= 0) blockers.push(`${label} ราคา/หน่วยไม่ถูกต้อง`)
     }
   }

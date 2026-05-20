@@ -55,11 +55,13 @@ export interface ReceiptMaterial {
   spec: string | null
   code_spec_key: string | null
   base_uom: string | null
+  base_uom_id: string | null
   category?: {
     cat_code: string | null
     cat_name_th: string | null
   } | null
   uom?: {
+    id?: string | null
     uom_code: string | null
     uom_name_th: string | null
   } | null

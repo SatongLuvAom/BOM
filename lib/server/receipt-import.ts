@@ -142,8 +142,9 @@ export const RECEIPT_ITEM_SELECT = `
     spec,
     code_spec_key,
     base_uom,
+    base_uom_id,
     category:mat_category!mat_master_cat_id_fkey(cat_code, cat_name_th),
-    uom:mat_uom!mat_master_base_uom_fkey(uom_code, uom_name_th)
+    uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
   ),
   suggested_material:mat_master!purchase_receipt_items_suggested_material_id_fkey(
     id,
@@ -153,7 +154,9 @@ export const RECEIPT_ITEM_SELECT = `
     mat_name_en,
     spec,
     code_spec_key,
-    base_uom
+    base_uom,
+    base_uom_id,
+    uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
   ),
   uom:mat_uom!purchase_receipt_items_uom_id_fkey(id, uom_code, uom_name_th)
 `
@@ -442,8 +445,9 @@ export async function searchMaterialCandidates(supabase: any, search: string, li
       spec,
       code_spec_key,
       base_uom,
+      base_uom_id,
       category:mat_category!mat_master_cat_id_fkey(cat_code, cat_name_th),
-      uom:mat_uom!mat_master_base_uom_fkey(uom_code, uom_name_th)
+      uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
     `)
     .eq('is_deleted', false)
     .in('material_id', limitedIds)
@@ -475,6 +479,7 @@ export async function validateReceiptBeforePosting(supabase: any, id: string) {
 
     if (item.action === 'update_price') {
       if (!item.material_id) errors.push(`รายการ ${item.line_no ?? item.item_name_raw ?? item.id} ยังไม่ได้เลือกวัสดุ`)
+      if (!item.uom_id) errors.push(`รายการ ${item.line_no ?? item.item_name_raw ?? item.id} ต้องมีหน่วยก่อนบันทึก`)
       if (!item.unit_price || Number(item.unit_price) <= 0) errors.push(`รายการ ${item.line_no ?? item.item_name_raw ?? item.id} ยังไม่มีราคา/หน่วยที่ถูกต้อง`)
     }
   }
