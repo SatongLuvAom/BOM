@@ -13,12 +13,14 @@ import type { PurchaseReceiptItem, ReceiptSupplier, ReceiptUom } from '@/types/r
 
 type PageProps = {
   params: Promise<{ id: string }>
+  searchParams?: Promise<{ notice?: string; warning?: string }>
 }
 
 export const dynamic = 'force-dynamic'
 
-export default async function ReceiptReviewPage({ params }: PageProps) {
+export default async function ReceiptReviewPage({ params, searchParams }: PageProps) {
   const { id } = await params
+  const search = await searchParams
   const supabase = await createClient()
 
   try {
@@ -71,6 +73,8 @@ export default async function ReceiptReviewPage({ params }: PageProps) {
             initialItems={items as PurchaseReceiptItem[]}
             suppliers={(suppliersRes.data ?? []) as ReceiptSupplier[]}
             uoms={(uomsRes.data ?? []) as ReceiptUom[]}
+            initialMessage={search?.notice === 'ai_success' ? 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก' : null}
+            initialWarning={search?.warning ?? null}
           />
         </div>
       </div>

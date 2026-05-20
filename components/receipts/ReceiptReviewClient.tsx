@@ -55,11 +55,15 @@ export function ReceiptReviewClient({
   initialItems,
   suppliers,
   uoms,
+  initialMessage = null,
+  initialWarning = null,
 }: {
   initialReceipt: PurchaseReceipt
   initialItems: PurchaseReceiptItem[]
   suppliers: ReceiptSupplier[]
   uoms: ReceiptUom[]
+  initialMessage?: string | null
+  initialWarning?: string | null
 }) {
   const [receipt, setReceipt] = useState(initialReceipt)
   const [items, setItems] = useState(initialItems)
@@ -70,7 +74,8 @@ export function ReceiptReviewClient({
   const [posting, setPosting] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [readingAi, setReadingAi] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(initialMessage)
+  const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
 
   const isPosted = receipt.status === 'posted'
@@ -89,6 +94,7 @@ export function ReceiptReviewClient({
 
   function clearMessages() {
     setMessage(null)
+    setWarning(null)
     setError(null)
   }
 
@@ -260,9 +266,15 @@ export function ReceiptReviewClient({
 
   return (
     <div className="space-y-5">
-      {(message || error) && (
-        <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
-          {error || message}
+      {(message || warning || error) && (
+        <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
+          error
+            ? 'border-red-200 bg-red-50 text-red-700'
+            : warning
+              ? 'border-amber-200 bg-amber-50 text-amber-700'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        }`}>
+          {error || warning || message}
         </div>
       )}
 
