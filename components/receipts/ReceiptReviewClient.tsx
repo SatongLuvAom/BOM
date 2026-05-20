@@ -72,6 +72,7 @@ export function ReceiptReviewClient({
   const [savingHeader, setSavingHeader] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [postingReady, setPostingReady] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [readingAi, setReadingAi] = useState(false)
   const [fillingUoms, setFillingUoms] = useState(false)
@@ -83,6 +84,7 @@ export function ReceiptReviewClient({
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
   const hasAiExtraction = Boolean(receipt.ai_raw_json || receipt.ai_raw_text)
   const postBlockers = useMemo(() => buildPostBlockers(receipt, items), [receipt, items])
+  const readiness = useMemo(() => buildReadinessSummary(items, isPosted), [items, isPosted])
 
   useEffect(() => {
     try {
@@ -183,6 +185,7 @@ export function ReceiptReviewClient({
   }
 
   async function saveItem(item: PurchaseReceiptItem, patch?: Partial<PurchaseReceiptItem>) {
+    if (item.review_status === 'posted') return
     clearMessages()
     const payload = toItemPayload({ ...item, ...patch })
     const res = await fetch(`/api/receipts/${receipt.id}/items/${item.id}`, {
@@ -200,6 +203,7 @@ export function ReceiptReviewClient({
   }
 
   async function deleteItem(item: PurchaseReceiptItem) {
+    if (item.review_status === 'posted') return
     if (!confirm(`ลบรายการ "${item.item_name_raw || item.id}" ?`)) return
     clearMessages()
     const res = await fetch(`/api/receipts/${receipt.id}/items/${item.id}`, { method: 'DELETE' })
@@ -306,9 +310,37 @@ export function ReceiptReviewClient({
       }
       setReceipt(json.data.receipt)
       setItems(json.data.items)
-      setMessage(`บันทึกราคาเข้าระบบแล้ว ${json.data.result?.inserted_prices ?? 0} รายการ`)
+      const postedCount = json.data.result?.posted_count ?? json.data.result?.inserted_prices ?? 0
+      const skippedCount = json.data.result?.skipped_count ?? 0
+      setMessage(`บันทึกราคาเข้าระบบแล้ว ${postedCount} รายการ${skippedCount > 0 ? `, ข้าม ${skippedCount} รายการ เพราะข้อมูลยังไม่ครบ` : ''}`)
     } finally {
       setPosting(false)
+    }
+  }
+
+  async function postReadyItems() {
+    if (readiness.ready === 0 || isPosted || postingReady) return
+    if (!confirm(`ต้องการบันทึกราคาจำนวน ${readiness.ready} รายการเข้าระบบหรือไม่?`)) return
+    setPostingReady(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/post-ready-items`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'บันทึกราคาที่พร้อมไม่สำเร็จ')
+        return
+      }
+
+      const result = json.data.result ?? {}
+      setReceipt(json.data.receipt)
+      setItems(json.data.items ?? [])
+      const postedCount = result.posted_count ?? result.postedCount ?? 0
+      const skippedCount = result.skipped_count ?? result.skippedCount ?? 0
+      const skippedReasons = Array.isArray(result.skipped_reasons) ? result.skipped_reasons : []
+      const firstReason = skippedReasons[0]?.reason ? ` (${skippedReasons[0].reason})` : ''
+      setMessage(`บันทึกสำเร็จ ${postedCount} รายการ${skippedCount > 0 ? `, ข้าม ${skippedCount} รายการ เพราะข้อมูลยังไม่ครบ${firstReason}` : ''}`)
+    } finally {
+      setPostingReady(false)
     }
   }
 
@@ -475,10 +507,23 @@ export function ReceiptReviewClient({
                 {fillingUoms ? 'กำลังเติมหน่วย...' : 'เติมหน่วยอัตโนมัติ'}
               </button>
             )}
-            <button disabled={isPosted || posting || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
+            {!isPosted && (
+              <button disabled={postingReady || posting || readiness.ready === 0} type="button" onClick={postReadyItems} className="btn-primary">
+                {postingReady ? 'กำลังบันทึก...' : `บันทึกราคาที่พร้อมทั้งหมด (${readiness.ready})`}
+              </button>
+            )}
+            <button disabled={isPosted || posting || postingReady || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
               {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
             </button>
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-100 px-5 py-3 text-xs font-bold text-slate-700 md:grid-cols-5">
+          <SummaryPill label="พร้อมบันทึก" value={readiness.ready} tone="green" />
+          <SummaryPill label="ต้องตรวจสอบ" value={readiness.needsReview} tone="amber" />
+          <SummaryPill label="ไม่มีวัสดุที่เลือก" value={readiness.missingMaterial} tone="red" />
+          <SummaryPill label="ไม่มีหน่วย" value={readiness.missingUom} tone="red" />
+          <SummaryPill label="ไม่มีราคา" value={readiness.missingPrice} tone="red" />
         </div>
 
         {!isPosted && (
@@ -523,17 +568,19 @@ export function ReceiptReviewClient({
                   </td>
                 </tr>
               )}
-              {items.map((item) => (
+              {items.map((item) => {
+                const rowLocked = isPosted || item.review_status === 'posted'
+                return (
                 <tr key={item.id}>
                   <td className="min-w-[260px]">
-                    <input disabled={isPosted} value={item.item_name_raw ?? ''} onChange={(e) => setItemField(item.id, 'item_name_raw', e.target.value)} className={inputClass} />
+                    <input disabled={rowLocked} value={item.item_name_raw ?? ''} onChange={(e) => setItemField(item.id, 'item_name_raw', e.target.value)} className={inputClass} />
                   </td>
                   <td>
-                    <input disabled={isPosted} type="number" step="0.0001" value={item.qty ?? ''} onChange={(e) => setItemField(item.id, 'qty', e.target.value === '' ? null : Number(e.target.value))} className={inputClass} />
+                    <input disabled={rowLocked} type="number" step="0.0001" value={item.qty ?? ''} onChange={(e) => setItemField(item.id, 'qty', e.target.value === '' ? null : Number(e.target.value))} className={inputClass} />
                   </td>
                   <td>
                     <div className="space-y-1">
-                      <select disabled={isPosted} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
+                      <select disabled={rowLocked} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
                         <option value="">-</option>
                         {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
                       </select>
@@ -543,15 +590,15 @@ export function ReceiptReviewClient({
                     </div>
                   </td>
                   <td>
-                    <input disabled={isPosted} type="number" step="0.0001" value={item.unit_price ?? ''} onChange={(e) => setItemField(item.id, 'unit_price', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
+                    <input disabled={rowLocked} type="number" step="0.0001" value={item.unit_price ?? ''} onChange={(e) => setItemField(item.id, 'unit_price', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
                   </td>
                   <td>
-                    <input disabled={isPosted} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
+                    <input disabled={rowLocked} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
                   </td>
                   <td className="min-w-[280px]">
                     <MaterialPicker
                       item={item}
-                      disabled={isPosted}
+                      disabled={rowLocked}
                       onSelect={(candidate) => saveItem(item, {
                         ...buildMaterialSelectionPatch(item, candidate),
                         material_id: candidate.id,
@@ -560,7 +607,7 @@ export function ReceiptReviewClient({
                     />
                   </td>
                   <td>
-                    <select disabled={isPosted} value={item.action ?? 'needs_review'} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
+                    <select disabled={rowLocked} value={item.action ?? 'needs_review'} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
                       {actionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </td>
@@ -571,7 +618,7 @@ export function ReceiptReviewClient({
                   </td>
                   <td>
                     <div className="flex justify-end gap-2">
-                      {!isPosted && (
+                      {!rowLocked && (
                         <>
                           <button type="button" onClick={() => saveItem(item)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50">
                             บันทึก
@@ -584,7 +631,8 @@ export function ReceiptReviewClient({
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -673,6 +721,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
+function SummaryPill({ label, value, tone }: { label: string; value: number; tone: 'green' | 'amber' | 'red' }) {
+  const toneClass = tone === 'green'
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    : tone === 'amber'
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : 'border-red-200 bg-red-50 text-red-700'
+
+  return (
+    <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>
+      <span className="block text-[11px]">{label}</span>
+      <span className="text-lg">{value}</span>
+      <span className="ml-1 text-[11px]">รายการ</span>
+    </div>
+  )
+}
+
 function buildMaterialSelectionPatch(item: PurchaseReceiptItem, candidate: MaterialCandidate) {
   const materialUomId = candidate.uom?.id ?? candidate.base_uom_id ?? null
   const materialUomRaw = candidate.uom?.uom_code ?? candidate.base_uom ?? null
@@ -758,6 +822,43 @@ function toItemPayload(item: PurchaseReceiptItem) {
     action: item.action ?? 'needs_review',
     review_status: item.action && item.action !== 'needs_review' ? 'reviewed' : item.review_status,
   }
+}
+
+function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean) {
+  const summary = {
+    ready: 0,
+    needsReview: 0,
+    missingMaterial: 0,
+    missingUom: 0,
+    missingPrice: 0,
+  }
+
+  if (isPosted) return summary
+
+  for (const item of items) {
+    if (item.review_status === 'posted' || item.action === 'ignore' || item.action === 'create_material_needed') {
+      continue
+    }
+    if (!item.action || item.action === 'needs_review' || item.review_status === 'needs_review') {
+      summary.needsReview += 1
+      continue
+    }
+    if (item.action !== 'update_price') continue
+
+    const missingMaterial = !item.material_id
+    const missingUom = !item.uom_id
+    const missingPrice = !item.unit_price || item.unit_price <= 0
+
+    if (missingMaterial) summary.missingMaterial += 1
+    if (missingUom) summary.missingUom += 1
+    if (missingPrice) summary.missingPrice += 1
+
+    if (!missingMaterial && !missingUom && !missingPrice && item.review_status === 'reviewed') {
+      summary.ready += 1
+    }
+  }
+
+  return summary
 }
 
 function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[]) {

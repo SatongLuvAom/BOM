@@ -18,10 +18,10 @@ function receiptError(error: unknown) {
   }
 
   if (isReceiptSchemaMissing(error)) {
-    return databaseError('Could not post receipt. Run sql/phase2b_receipt_import_v1.sql in Supabase first.', error)
+    return databaseError('Could not post ready receipt items. Run sql/phase2b4_receipt_bulk_post_ready_items.sql in Supabase first.', error)
   }
 
-  return databaseError('Receipt post operation failed', {
+  return databaseError('Receipt ready item post operation failed', {
     message: (error as Error).message,
   })
 }

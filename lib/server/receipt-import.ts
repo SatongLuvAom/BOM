@@ -224,6 +224,7 @@ export function isReceiptSchemaMissing(error: any) {
     text.includes('file_storage_path') ||
     text.includes('ai_raw_text') ||
     text.includes('ai_raw_json') ||
+    text.includes('fn_post_purchase_receipt_ready_items') ||
     text.includes('fn_post_purchase_receipt_to_price_history')
   )
 }
@@ -494,12 +495,7 @@ export async function validateReceiptBeforePosting(supabase: any, id: string) {
 export async function postReceiptToPriceHistory(supabase: any, id: string, userId: string) {
   await validateReceiptBeforePosting(supabase, id)
 
-  const { data, error } = await supabase.rpc('fn_post_purchase_receipt_to_price_history', {
-    p_receipt_id: id,
-    p_user_id: userId,
-  })
-
-  if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  const data = await runReceiptPostRpc(supabase, 'fn_post_purchase_receipt_to_price_history', id, userId)
 
   await writeAuditLog({
     entityType: 'purchase_receipt',
@@ -508,6 +504,42 @@ export async function postReceiptToPriceHistory(supabase: any, id: string, userI
     payload: data,
     createdBy: userId,
   })
+
+  return data
+}
+
+export async function postReadyReceiptItemsToPriceHistory(supabase: any, id: string, userId: string) {
+  const receipt = await getReceiptById(supabase, id)
+  if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
+  if (receipt.status === 'posted') throw new ReceiptImportError('สลิปนี้ถูกบันทึกเข้าระบบแล้ว', 400, 'BAD_REQUEST')
+  if (!receipt.supplier_id) throw new ReceiptImportError('ต้องเลือกซัพพลายเออร์ก่อนบันทึกราคา', 400, 'VALIDATION_ERROR')
+
+  const data = await runReceiptPostRpc(supabase, 'fn_post_purchase_receipt_ready_items', id, userId)
+
+  await writeAuditLog({
+    entityType: 'purchase_receipt',
+    entityKey: id,
+    action: 'POST_READY_ITEMS',
+    payload: data,
+    createdBy: userId,
+  })
+
+  return data
+}
+
+async function runReceiptPostRpc(supabase: any, functionName: string, id: string, userId: string) {
+  const { data, error } = await supabase.rpc(functionName, {
+    p_receipt_id: id,
+    p_user_id: userId,
+  })
+
+  if (error) {
+    const message = String(error.message ?? '')
+    if (message.includes(functionName)) {
+      throw new ReceiptImportError('ยังไม่ได้รัน SQL migration สำหรับ bulk posting', 500, 'DATABASE_ERROR', error)
+    }
+    throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  }
 
   return data
 }
