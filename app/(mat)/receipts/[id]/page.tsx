@@ -83,7 +83,7 @@ export default async function ReceiptReviewPage({ params }: PageProps) {
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800">
             <h1 className="font-bold">ยังไม่ได้รัน SQL migration สำหรับ Receipt Import v1</h1>
             <p className="mt-2 text-sm">
-              ให้รันไฟล์ <code className="rounded bg-white px-1">sql/phase2b_receipt_import_v1.sql</code> ใน Supabase ก่อนใช้งานหน้านี้
+              ให้รันไฟล์ <code className="rounded bg-white px-1">sql/phase2b_receipt_import_v1.sql</code> และ <code className="rounded bg-white px-1">sql/phase2b2_receipt_ai_gemini.sql</code> ใน Supabase ก่อนใช้งานหน้านี้
             </p>
           </div>
         </div>

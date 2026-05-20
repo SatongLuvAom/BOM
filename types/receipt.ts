@@ -29,6 +29,9 @@ export interface PurchaseReceipt {
   file_url: string | null
   file_name: string | null
   file_mime_type: string | null
+  file_storage_path: string | null
+  ai_raw_text: string | null
+  ai_raw_json: unknown | null
   status: ReceiptStatus
   confidence: number | null
   notes: string | null

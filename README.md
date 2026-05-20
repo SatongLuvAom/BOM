@@ -46,6 +46,7 @@ LINE_CHANNEL_ACCESS_TOKEN=your-line-channel-access-token
 LINE_BOT_API_BASE_URL=https://api.line.me
 
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+GEMINI_API_KEY=your-gemini-api-key
 ```
 
 Where to find each value:
@@ -56,6 +57,7 @@ Where to find each value:
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Developers > Messaging API channel > Messaging API > Channel access token
 - `LINE_BOT_API_BASE_URL`: keep `https://api.line.me`
 - `ANTHROPIC_API_KEY`: optional, required only for AI price suggestion
+- `GEMINI_API_KEY`: optional, required only for Receipt Import AI/OCR
 
 Do not put Supabase `secret` or `service_role` keys in `NEXT_PUBLIC_*` variables.
 
@@ -127,7 +129,7 @@ npm run build
 ## Vercel Deployment Checklist
 
 1. Create a Vercel project from this repo.
-2. Add these environment variables in Vercel Project Settings: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_BOT_API_BASE_URL`, `ANTHROPIC_API_KEY`.
+2. Add these environment variables in Vercel Project Settings: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_BOT_API_BASE_URL`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`.
 3. Deploy.
 4. Open the deployed URL and sign in with a Supabase Auth user.
 5. Test `/settings/setup`, `/settings/system`, `/materials`, `/boq`, `/bom`, `/customers`, and `/dashboard`.

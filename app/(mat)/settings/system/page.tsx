@@ -48,6 +48,7 @@ const OPTIONAL_ENV = [
   'LINE_CHANNEL_ACCESS_TOKEN',
   'LINE_BOT_API_BASE_URL',
   'ANTHROPIC_API_KEY',
+  'GEMINI_API_KEY',
 ]
 
 function getEnvCheck(name: string, required: boolean): HealthCheck {
@@ -393,6 +394,12 @@ export default async function SystemHealthPage() {
         status: process.env.ANTHROPIC_API_KEY ? 'ok' : 'warning',
         message: process.env.ANTHROPIC_API_KEY ? 'Configured' : 'Optional',
         detail: '/api/boq/[id]/ai-price',
+      },
+      {
+        name: 'Receipt AI/OCR',
+        status: process.env.GEMINI_API_KEY ? 'ok' : 'warning',
+        message: process.env.GEMINI_API_KEY ? 'Configured' : 'Optional',
+        detail: '/api/receipts/[id]/extract',
       },
     ]
   } else {

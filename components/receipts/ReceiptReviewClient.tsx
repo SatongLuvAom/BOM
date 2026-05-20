@@ -68,10 +68,13 @@ export function ReceiptReviewClient({
   const [savingHeader, setSavingHeader] = useState(false)
   const [addingItem, setAddingItem] = useState(false)
   const [posting, setPosting] = useState(false)
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [readingAi, setReadingAi] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const isPosted = receipt.status === 'posted'
+  const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
   const postBlockers = useMemo(() => buildPostBlockers(receipt, items), [receipt, items])
 
   function setHeaderField<K extends keyof HeaderForm>(key: K, value: HeaderForm[K]) {
@@ -173,6 +176,68 @@ export function ReceiptReviewClient({
     setItems((current) => current.filter((row) => row.id !== item.id))
   }
 
+  async function uploadReceiptFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    setUploadingFile(true)
+    clearMessages()
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`/api/receipts/${receipt.id}/file`, {
+        method: 'POST',
+        body: form,
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'แนบไฟล์สลิปไม่สำเร็จ')
+        return
+      }
+      setReceipt(json.data)
+      setHeader(toHeaderForm(json.data))
+      setMessage('แนบไฟล์สลิปแล้ว สามารถกดอ่านสลิปด้วย AI ได้')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
+  async function readReceiptWithAi() {
+    if (isPosted || !hasReceiptFile) return
+    let replaceItems = false
+    if (items.length > 0) {
+      replaceItems = confirm('สลิปนี้มีรายการอยู่แล้ว ต้องการแทนที่ด้วยผลจาก AI หรือไม่')
+      if (!replaceItems) return
+    }
+
+    setReadingAi(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replaceItems }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'ไม่สามารถอ่านไฟล์นี้ได้ กรุณากรอกข้อมูลเอง')
+        return
+      }
+      setReceipt(json.data.receipt)
+      setHeader(toHeaderForm(json.data.receipt))
+      setItems(json.data.items ?? [])
+      const warningCount = json.data.extraction?.warnings?.length ?? 0
+      setMessage(
+        warningCount > 0
+          ? 'ระบบอ่านข้อมูลได้บางส่วน กรุณาตรวจสอบอีกครั้ง'
+          : 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก',
+      )
+    } finally {
+      setReadingAi(false)
+    }
+  }
+
   async function postReceipt() {
     if (postBlockers.length > 0 || isPosted) return
     if (!confirm('บันทึกราคาเข้าระบบ Material Master จากสลิปนี้?')) return
@@ -265,21 +330,58 @@ export function ReceiptReviewClient({
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5 text-blue-950">
-            <h3 className="font-bold">AI/OCR จะเพิ่มในรอบถัดไป</h3>
-            <p className="mt-2 text-sm leading-6">
-              รอบนี้ให้กรอกและตรวจรายการด้วยตัวเองก่อน เพื่อให้โครงข้อมูลและการบันทึกราคาเสถียร
-            </p>
-          </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="font-bold text-blue-950">ไฟล์สลิป</h3>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-blue-950">ไฟล์สลิป</h3>
+                <p className="mt-1 text-xs text-slate-500">รองรับ JPG, PNG, PDF ขนาดไม่เกิน 10 MB</p>
+              </div>
+              {!isPosted && (
+                <label className={`inline-flex cursor-pointer items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 ${uploadingFile ? 'pointer-events-none opacity-50' : ''}`}>
+                  {uploadingFile ? 'กำลังอัปโหลด...' : 'แนบไฟล์'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,application/pdf"
+                    className="sr-only"
+                    onChange={uploadReceiptFile}
+                    disabled={uploadingFile}
+                  />
+                </label>
+              )}
+            </div>
             {receipt.file_name ? (
-              <a href={receipt.file_url ?? '#'} className="mt-2 block text-sm font-semibold text-blue-700 underline">
+              <a href={`/api/receipts/${receipt.id}/file`} target="_blank" rel="noreferrer" className="mt-3 block truncate text-sm font-semibold text-blue-700 underline">
                 {receipt.file_name}
               </a>
             ) : (
               <p className="mt-2 text-sm text-slate-400">ยังไม่ได้แนบไฟล์</p>
             )}
+          </div>
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5 text-blue-950">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold">อ่านสลิปด้วย AI</h3>
+                <p className="mt-2 text-sm leading-6">
+                  ให้ระบบช่วยอ่านข้อมูลจากสลิป แล้วเติมข้อมูลลง Draft เพื่อให้ตรวจสอบก่อนบันทึกราคา
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={readReceiptWithAi}
+                disabled={isPosted || readingAi || !hasReceiptFile}
+                className="rounded-xl bg-blue-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {readingAi ? 'กำลังอ่านสลิปด้วย AI...' : 'อ่านสลิปด้วย AI'}
+              </button>
+            </div>
+            {!hasReceiptFile && (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+                กรุณาแนบไฟล์สลิปก่อนอ่านด้วย AI
+              </p>
+            )}
+            <p className="mt-3 text-xs leading-5 text-blue-800">
+              AI เติมข้อมูลให้เท่านั้น ยังต้องตรวจรายการ เลือกวัสดุ และกดบันทึกราคาเข้าระบบด้วยตัวเอง
+            </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="font-bold text-blue-950">สถานะก่อนบันทึก</h3>

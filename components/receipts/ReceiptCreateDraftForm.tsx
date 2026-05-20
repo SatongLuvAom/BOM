@@ -126,7 +126,7 @@ export function ReceiptCreateDraftForm({ suppliers }: { suppliers: ReceiptSuppli
       </Field>
 
       <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-        AI/OCR จะเพิ่มในรอบถัดไป รอบนี้ให้สร้าง Draft และกรอกรายการด้วยตัวเองก่อน
+        หลังสร้าง Draft แล้ว สามารถแนบไฟล์และกดอ่านสลิปด้วย AI ในหน้าตรวจสลิปได้
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">

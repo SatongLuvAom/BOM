@@ -95,6 +95,9 @@ export const RECEIPT_SELECT = `
   file_url,
   file_name,
   file_mime_type,
+  file_storage_path,
+  ai_raw_text,
+  ai_raw_json,
   status,
   confidence,
   notes,
@@ -215,6 +218,9 @@ export function isReceiptSchemaMissing(error: any) {
     text.includes('PGRST205') ||
     text.includes('purchase_receipts') ||
     text.includes('purchase_receipt_items') ||
+    text.includes('file_storage_path') ||
+    text.includes('ai_raw_text') ||
+    text.includes('ai_raw_json') ||
     text.includes('fn_post_purchase_receipt_to_price_history')
   )
 }
