@@ -71,7 +71,12 @@ export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient()
     const data = await createReceiptDraft(supabase, parsed.data, owner.id)
-    return NextResponse.json({ data }, { status: 201 })
+    return NextResponse.json({
+      ok: true,
+      receiptId: data.id,
+      redirectTo: `/receipts/${data.id}`,
+      data,
+    }, { status: 201 })
   } catch (error) {
     return receiptError(error)
   }

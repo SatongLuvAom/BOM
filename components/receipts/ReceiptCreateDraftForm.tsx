@@ -38,6 +38,13 @@ const progressSteps: Array<{ stage: ImportStage; label: string }> = [
   { stage: 'redirecting', label: 'กำลังเปิดหน้าตรวจสอบ...' },
 ]
 
+const missingReceiptIdMessage = 'สร้าง Draft สำเร็จไม่สมบูรณ์: ไม่พบรหัสสลิป กรุณาเปิดรายการนำเข้าราคาจากสลิปอีกครั้ง'
+
+type ReceiptImportNotice = {
+  type: 'message' | 'warning'
+  text: string
+}
+
 export function ReceiptCreateDraftForm() {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -70,6 +77,7 @@ export function ReceiptCreateDraftForm() {
   }
 
   async function createBlankDraft() {
+    if (creating) return
     setCreating('blank')
     setStage('creating_draft')
     setSuccess(null)
@@ -87,9 +95,15 @@ export function ReceiptCreateDraftForm() {
         setError(json.error ?? 'สร้าง Draft ไม่สำเร็จ')
         return
       }
+      const receiptId = getReceiptId(json)
+      if (!receiptId) {
+        setStage('error')
+        setError(missingReceiptIdMessage)
+        return
+      }
       setStage('redirecting')
       didRedirect = true
-      router.push(`/receipts/${json.data.id}`)
+      router.push(`/receipts/${receiptId}`)
     } catch {
       setStage('error')
       setError('สร้าง Draft ไม่สำเร็จ กรุณาลองใหม่')
@@ -99,6 +113,7 @@ export function ReceiptCreateDraftForm() {
   }
 
   async function createDraftAndReadAi() {
+    if (creating) return
     const fileError = validateFile(file)
     if (fileError) {
       setStage('error')
@@ -131,24 +146,21 @@ export function ReceiptCreateDraftForm() {
         return
       }
 
-      const receiptId = json.receiptId ?? json.data?.receipt?.id
+      const receiptId = getReceiptId(json)
       if (!receiptId) {
         setStage('error')
-        setError('สร้าง Draft แล้วแต่ไม่พบเลขอ้างอิงสลิป')
+        setError(missingReceiptIdMessage)
         return
       }
 
       const aiStatus = json.aiStatus ?? (json.data?.warning ? 'failed' : 'success')
       const message = json.message ?? json.data?.warning ?? null
-      setStage('success')
-      setSuccess(message ?? 'สร้าง Draft สำเร็จ')
-
-      const query = buildReviewQuery(aiStatus, message)
+      const notice = buildReviewNotice(aiStatus, message)
+      setSuccess(notice?.text ?? 'สร้าง Draft สำเร็จ')
+      storeReceiptImportNotice(receiptId, notice)
+      setStage('redirecting')
       didRedirect = true
-      window.setTimeout(() => {
-        setStage('redirecting')
-        router.push(`/receipts/${receiptId}${query}`)
-      }, 250)
+      router.push(`/receipts/${receiptId}`)
     } catch {
       setStage('error')
       setError('ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือสร้าง Draft เปล่า')
@@ -279,9 +291,28 @@ function formatFileSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function buildReviewQuery(aiStatus: string, message: string | null) {
-  if (aiStatus === 'success') return '?ai=success'
-  if (aiStatus === 'missing_config') return '?ai=missing_config'
-  if (aiStatus === 'failed') return `?ai=failed${message ? `&warning=${encodeURIComponent(message)}` : ''}`
-  return ''
+function getReceiptId(response: any) {
+  return response?.receiptId ?? response?.data?.id ?? response?.data?.receipt?.id ?? null
+}
+
+function buildReviewNotice(aiStatus: string, message: string | null): ReceiptImportNotice | null {
+  if (aiStatus === 'success') {
+    return { type: 'message', text: message || 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก' }
+  }
+  if (aiStatus === 'missing_config') {
+    return { type: 'warning', text: message || 'ยังไม่ได้ตั้งค่า GEMINI_API_KEY กรุณากรอกข้อมูลเอง' }
+  }
+  if (aiStatus === 'failed') {
+    return { type: 'warning', text: message || 'ไม่สามารถอ่านสลิปได้ กรุณาลองใหม่หรือกรอกข้อมูลเอง' }
+  }
+  return message ? { type: 'message', text: message } : null
+}
+
+function storeReceiptImportNotice(receiptId: string, notice: ReceiptImportNotice | null) {
+  if (!notice) return
+  try {
+    window.sessionStorage.setItem(`receipt-import-notice:${receiptId}`, JSON.stringify(notice))
+  } catch {
+    // Navigation must not fail just because browser storage is unavailable.
+  }
 }

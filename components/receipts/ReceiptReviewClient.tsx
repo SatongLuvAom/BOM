@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
 import type {
   MaterialCandidate,
@@ -82,6 +82,21 @@ export function ReceiptReviewClient({
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
   const hasAiExtraction = Boolean(receipt.ai_raw_json || receipt.ai_raw_text)
   const postBlockers = useMemo(() => buildPostBlockers(receipt, items), [receipt, items])
+
+  useEffect(() => {
+    try {
+      const key = `receipt-import-notice:${receipt.id}`
+      const raw = window.sessionStorage.getItem(key)
+      if (!raw) return
+      window.sessionStorage.removeItem(key)
+      const notice = JSON.parse(raw) as { type?: string; text?: string }
+      if (!notice.text) return
+      if (notice.type === 'warning') setWarning(notice.text)
+      else setMessage(notice.text)
+    } catch {
+      // A stored notice is only UI feedback; review page data is still loaded from the server.
+    }
+  }, [receipt.id])
 
   function setHeaderField<K extends keyof HeaderForm>(key: K, value: HeaderForm[K]) {
     setHeader((current) => ({ ...current, [key]: value }))

@@ -56,8 +56,11 @@ function importResponse(input: {
   extraction?: unknown
   status?: number
 }) {
+  const receiptId = input.receipt?.id ?? null
   return NextResponse.json({
-    receiptId: input.receipt?.id,
+    ok: true,
+    receiptId,
+    redirectTo: receiptId ? `/receipts/${receiptId}` : null,
     status: input.receipt?.status ?? 'draft',
     aiStatus: input.aiStatus,
     message: input.message,
