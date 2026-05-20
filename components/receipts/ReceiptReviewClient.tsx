@@ -309,7 +309,7 @@ export function ReceiptReviewClient({
         return
       }
       setItems(json.data.items ?? [])
-      setMessage(`จับคู่วัสดุแล้ว ${json.data.autoSelected ?? 0} รายการ, พบวัสดุใกล้เคียง ${json.data.suggested ?? 0} รายการ, ยังต้องตรวจสอบ ${json.data.unresolved ?? 0} รายการ`)
+      setMessage(`เลือกให้อัตโนมัติ ${json.data.autoSelected ?? 0} รายการ, ต้องตรวจสอบ ${json.data.suggested ?? 0} รายการ, ไม่พบวัสดุ ${json.data.notFound ?? 0} รายการ`)
     } finally {
       setMatchingMaterials(false)
     }
@@ -628,7 +628,9 @@ export function ReceiptReviewClient({
                         ...buildMaterialSelectionPatch(item, candidate),
                         material_id: candidate.id,
                         match_confidence: 100,
+                        action: !item.action || item.action === 'needs_review' || item.action === 'create_material_needed' ? 'update_price' : item.action,
                       } as any)}
+                      onCreateMaterialNeeded={() => saveItem(item, { action: 'create_material_needed' } as any)}
                     />
                   </td>
                   <td>
@@ -677,16 +679,26 @@ function MaterialPicker({
   item,
   disabled,
   onSelect,
+  onCreateMaterialNeeded,
 }: {
   item: PurchaseReceiptItem
   disabled?: boolean
   onSelect: (candidate: MaterialCandidate) => void
+  onCreateMaterialNeeded: () => void
 }) {
   const [query, setQuery] = useState(item.item_name_raw ?? '')
   const [loading, setLoading] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [candidates, setCandidates] = useState<MaterialCandidate[]>([])
   const selected = item.material
   const suggested = item.suggested_material
+  const matchCandidates = (item.match_candidates?.length
+    ? item.match_candidates
+    : suggested
+      ? [{ ...suggested, match_confidence: item.match_confidence, match_reason: item.match_reason } as MaterialCandidate]
+      : []
+  ).slice(0, 3)
+  const autoSelected = Boolean(selected && item.match_reason?.includes('เลือกให้อัตโนมัติ'))
 
   async function search() {
     if (query.trim().length < 2) return
@@ -704,35 +716,82 @@ function MaterialPicker({
     <div className="space-y-2">
       {selected ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-          <p className="truncate text-xs font-bold text-emerald-800">{selected.material_code || selected.material_id}</p>
-          <p className="truncate text-xs text-emerald-700">{selected.mat_name_th}</p>
-        </div>
-      ) : suggested ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-amber-700">พบวัสดุใกล้เคียง</p>
-              <p className="truncate text-xs font-bold text-amber-900">{suggested.material_code || suggested.material_id}</p>
-              <p className="truncate text-xs text-amber-800">{suggested.mat_name_th}</p>
-              {item.match_reason && <p className="mt-1 line-clamp-2 text-[11px] text-amber-700">{item.match_reason}</p>}
+              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                <p className="truncate text-xs font-bold text-emerald-800">{selected.material_code || selected.material_id}</p>
+                {autoSelected && (
+                  <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                    เลือกให้อัตโนมัติ
+                  </span>
+                )}
+              </div>
+              <p className="truncate text-xs text-emerald-700">{selected.mat_name_th}</p>
             </div>
             {!disabled && (
-              <button type="button" onClick={() => onSelect(suggested as MaterialCandidate)} className="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-100">
-                เลือกวัสดุ
+              <button type="button" onClick={() => setSearchOpen(true)} className="shrink-0 rounded-lg border border-emerald-300 bg-white px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100">
+                เปลี่ยน
               </button>
             )}
           </div>
         </div>
+      ) : matchCandidates.length > 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[11px] font-bold text-amber-700">พบวัสดุใกล้เคียง</p>
+            <span className="text-[11px] font-semibold text-amber-700">
+              {matchCandidates[0]?.match_confidence ?? item.match_confidence ?? 0}%
+            </span>
+          </div>
+          <div className="space-y-1.5">
+            {matchCandidates.map((candidate) => (
+              <div key={candidate.id} className="rounded-lg border border-amber-200 bg-white px-2 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-bold text-amber-900">{candidate.material_code || candidate.material_id}</p>
+                    <p className="truncate text-xs text-amber-800">{candidate.mat_name_th}</p>
+                    <p className="text-[11px] text-amber-700">
+                      {candidate.spec || candidate.code_spec_key || '-'}
+                      {candidate.match_confidence != null ? ` / ${candidate.match_confidence}%` : ''}
+                    </p>
+                    {candidate.match_reason && <p className="mt-1 line-clamp-2 text-[11px] text-amber-700">{candidate.match_reason}</p>}
+                  </div>
+                  {!disabled && (
+                    <button type="button" onClick={() => onSelect(candidate)} className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-100">
+                      เลือก
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : (
-        <p className="text-xs font-semibold text-slate-400">ยังไม่ได้เลือกวัสดุ</p>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-xs font-bold text-slate-500">ไม่พบวัสดุในระบบ</p>
+          <p className="mt-1 text-[11px] text-slate-400">ค้นหาเอง หรือสร้างวัสดุใหม่ภายหลัง</p>
+        </div>
       )}
       {!disabled && (
-        <div className="flex gap-2">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} placeholder="ค้นหาวัสดุ" />
-          <button type="button" onClick={search} disabled={loading || query.trim().length < 2} className="rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
-            {loading ? '...' : 'ค้นหา'}
-          </button>
-        </div>
+        searchOpen ? (
+          <div className="flex gap-2">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} placeholder="ค้นหาวัสดุ" />
+            <button type="button" onClick={search} disabled={loading || query.trim().length < 2} className="rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+              {loading ? '...' : 'ค้นหา'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setSearchOpen(true)} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+              ค้นหาเอง
+            </button>
+            {!selected && (
+              <button type="button" onClick={onCreateMaterialNeeded} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100">
+                สร้างวัสดุใหม่ภายหลัง
+              </button>
+            )}
+          </div>
+        )
       )}
       {candidates.length > 0 && !disabled && (
         <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -743,6 +802,7 @@ function MaterialPicker({
               onClick={() => {
                 onSelect(candidate)
                 setCandidates([])
+                setSearchOpen(false)
               }}
               className="block w-full border-b border-slate-100 px-3 py-2 text-left text-xs hover:bg-blue-50"
             >

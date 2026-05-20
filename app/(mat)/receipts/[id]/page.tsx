@@ -9,6 +9,7 @@ import {
   isReceiptSchemaMissing,
   listReceiptItems,
 } from '@/lib/server/receipt-import'
+import { enrichReceiptItemsWithMaterialCandidates } from '@/lib/server/receipt-material-match'
 import type { PurchaseReceiptItem, ReceiptSupplier, ReceiptUom } from '@/types/receipt'
 
 type PageProps = {
@@ -42,6 +43,7 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
     if (!receipt) notFound()
     if (suppliersRes.error) throw suppliersRes.error
     if (uomsRes.error) throw uomsRes.error
+    const enrichedItems = await enrichReceiptItemsWithMaterialCandidates(supabase, items, receipt.supplier_id)
 
     return (
       <div className="flex min-h-full flex-col bg-slate-50">
@@ -70,7 +72,7 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
         <div className="w-full px-4 py-5 sm:px-6 lg:px-8">
           <ReceiptReviewClient
             initialReceipt={receipt}
-            initialItems={items as PurchaseReceiptItem[]}
+            initialItems={enrichedItems as PurchaseReceiptItem[]}
             suppliers={(suppliersRes.data ?? []) as ReceiptSupplier[]}
             uoms={(uomsRes.data ?? []) as ReceiptUom[]}
             initialMessage={getInitialReceiptMessage(search)}

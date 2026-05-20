@@ -2,13 +2,13 @@ import { z } from 'zod'
 import { normalizeMaterialSearchText } from '@/lib/material-master'
 import { writeAuditLog } from '@/lib/server-utils'
 import {
-  RECEIPT_ITEM_SELECT,
   RECEIPT_SELECT,
   ReceiptImportError,
   getReceiptById,
   listReceiptItems,
 } from '@/lib/server/receipt-import'
-import { inferReceiptItemUom } from '@/lib/server/receipt-uom'
+import { autoMatchReceiptItemMaterials } from '@/lib/server/receipt-material-match'
+import { fillMissingReceiptItemUoms } from '@/lib/server/receipt-uom'
 
 const RECEIPT_BUCKET = 'boq-attachments'
 const MAX_AI_FILE_SIZE = 10 * 1024 * 1024
@@ -91,28 +91,6 @@ type ReceiptFile = {
   buffer: Buffer
   mimeType: string
   fileName: string
-}
-
-type MaterialMatchRow = {
-  id: string
-  material_id: string
-  material_code: string | null
-  mat_name_th: string | null
-  mat_name_en: string | null
-  normalized_name: string | null
-  brand: string | null
-  model: string | null
-  spec: string | null
-  code_spec_key: string | null
-  base_uom: string | null
-  base_uom_id: string | null
-  uom?: UomRow | null
-}
-
-type UomRow = {
-  id: string
-  uom_code: string | null
-  uom_name_th: string | null
 }
 
 function cleanText(value: string | null | undefined) {
@@ -512,187 +490,6 @@ export async function extractReceiptWithGemini(file: ReceiptFile) {
   return validateReceiptExtraction(rawText)
 }
 
-function specTokens(value: string | null | undefined) {
-  const normalized = normalizeDigits(String(value ?? ''))
-    .toUpperCase()
-    .replace(/×/g, 'X')
-    .replace(/มิลลิเมตร|ม\.ม\.|มม\.?|มม/g, 'MM')
-    .replace(/เซนติเมตร|ซม\.?|ซม/g, 'CM')
-    .replace(/เมตร/g, 'M')
-    .replace(/วัตต์/g, 'W')
-    .replace(/โวลต์/g, 'V')
-    .replace(/(\d)\s+(MM|CM|M|W|V)\b/g, '$1$2')
-
-  const tokens = new Set<string>()
-  const patterns = [
-    /\b\d{1,4}(?:\.\d+)?(?:MM|CM|M|W|V)\b/g,
-    /\b\d{2,4}X\d{2,4}(?:X\d{1,4})?(?:MM|CM|M)?\b/g,
-    /\b\d{3}[A-Z]?\b/g,
-  ]
-
-  for (const pattern of patterns) {
-    for (const match of normalized.matchAll(pattern)) tokens.add(match[0])
-  }
-  return tokens
-}
-
-function hasSpecConflict(itemText: string, material: MaterialMatchRow) {
-  const itemTokens = specTokens(itemText)
-  const materialTokens = specTokens([
-    material.code_spec_key,
-    material.spec,
-    material.mat_name_th,
-    material.mat_name_en,
-    material.model,
-  ].filter(Boolean).join(' '))
-
-  if (itemTokens.size === 0 || materialTokens.size === 0) return false
-  for (const token of itemTokens) {
-    if (materialTokens.has(token)) return false
-  }
-  return true
-}
-
-function tokenSimilarity(left: string, right: string) {
-  const leftTokens = new Set(normalizeMaterialSearchText(left).split(' ').filter(Boolean))
-  const rightTokens = new Set(normalizeMaterialSearchText(right).split(' ').filter(Boolean))
-  if (leftTokens.size === 0 || rightTokens.size === 0) return 0
-
-  let intersection = 0
-  for (const token of leftTokens) {
-    if (rightTokens.has(token)) intersection += 1
-  }
-  return intersection / (leftTokens.size + rightTokens.size - intersection)
-}
-
-function scoreMaterialForItem(item: ReceiptExtractionItem, material: MaterialMatchRow) {
-  const itemText = normalizeMaterialSearchText([item.name, item.rawText].filter(Boolean).join(' '))
-  const itemName = normalizeMaterialSearchText(item.name)
-  const materialCode = normalizeMaterialSearchText(material.material_code ?? material.material_id)
-  const th = normalizeMaterialSearchText(material.mat_name_th)
-  const en = normalizeMaterialSearchText(material.mat_name_en)
-  const normalizedName = normalizeMaterialSearchText(material.normalized_name)
-  const materialText = normalizeMaterialSearchText([
-    material.material_code,
-    material.mat_name_th,
-    material.mat_name_en,
-    material.brand,
-    material.model,
-    material.spec,
-  ].filter(Boolean).join(' '))
-
-  let score = 0
-  let reason = ''
-
-  if (materialCode && itemText.includes(materialCode)) {
-    score = 98
-    reason = 'พบรหัสวัสดุในสลิป'
-  } else if (itemName && (itemName === th || itemName === en || itemName === normalizedName)) {
-    score = 95
-    reason = 'ชื่อรายการตรงกับชื่อวัสดุ'
-  } else if ((th.length >= 3 && itemText.includes(th)) || (en.length >= 3 && itemText.includes(en))) {
-    score = 90
-    reason = 'ชื่อวัสดุอยู่ในรายการจากสลิป'
-  } else {
-    const similarity = tokenSimilarity(itemText, materialText)
-    if (similarity >= 0.8) {
-      score = 85
-      reason = 'ชื่อรายการใกล้เคียงกับวัสดุ'
-    } else if (similarity >= 0.6) {
-      score = 70
-      reason = 'ชื่อรายการคล้ายวัสดุบางส่วน'
-    }
-  }
-
-  if (score > 0 && hasSpecConflict(itemText, material)) {
-    return {
-      score: Math.min(score, 59),
-      reason: 'ชื่อคล้ายกันแต่สเปกต่างกัน ต้องตรวจสอบ',
-    }
-  }
-
-  return { score, reason }
-}
-
-async function addMaterialSuggestions(supabase: any, extraction: ReceiptExtraction) {
-  if (extraction.items.length === 0) return extraction
-
-  const [{ data: materials, error: materialError }, { data: uoms, error: uomError }] = await Promise.all([
-    supabase
-      .from('mat_master')
-      .select(`
-        id,
-        material_id,
-        material_code,
-        mat_name_th,
-        mat_name_en,
-        normalized_name,
-        brand,
-        model,
-        spec,
-        code_spec_key,
-        base_uom,
-        base_uom_id,
-        uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
-      `)
-      .eq('is_deleted', false)
-      .limit(2000),
-    supabase
-      .from('mat_uom')
-      .select('id, uom_code, uom_name_th')
-      .eq('is_deleted', false)
-      .limit(500),
-  ])
-
-  if (materialError) throw new ReceiptImportError(materialError.message, 500, 'DATABASE_ERROR', materialError)
-  if (uomError) throw new ReceiptImportError(uomError.message, 500, 'DATABASE_ERROR', uomError)
-
-  const materialRows = (materials ?? []) as MaterialMatchRow[]
-  const uomRows = (uoms ?? []) as UomRow[]
-
-  return {
-    ...extraction,
-    items: extraction.items.map((item) => {
-      let best: { material: MaterialMatchRow; score: number; reason: string } | null = null
-      for (const material of materialRows) {
-        const result = scoreMaterialForItem(item, material)
-        if (result.score > (best?.score ?? 0)) {
-          best = { material, ...result }
-        }
-      }
-
-      const highConfidence = Boolean(best && best.score >= 90 && item.unitPrice && item.unitPrice > 0)
-      const matchedMaterial = best && best.score >= 60 ? best.material : null
-      const uomInference = inferReceiptItemUom(
-        { item_name_raw: item.name, raw_text: item.rawText, uom_raw: item.uom },
-        matchedMaterial,
-        uomRows,
-        { preferMaterial: false },
-      )
-      const uomReason = uomInference.reason === 'material' || uomInference.reason === 'rule'
-        ? uomInference.reasonText
-        : null
-      return {
-        ...item,
-        uom: uomInference.uom_raw ?? item.uom,
-        uomId: uomInference.uom_id,
-        suggestedMaterialId: best && best.score >= 60 ? best.material.id : null,
-        materialId: highConfidence ? best!.material.id : null,
-        matchConfidence: best && best.score >= 60 ? best.score : null,
-        matchReason: appendAiReason(best && best.score >= 60 ? best.reason : null, uomReason),
-        action: highConfidence ? 'update_price' : 'needs_review',
-      }
-    }),
-  }
-}
-
-function appendAiReason(existing: string | null, reason: string | null) {
-  if (!reason) return existing
-  if (!existing) return reason
-  if (existing.includes(reason)) return existing
-  return `${existing}; ${reason}`
-}
-
 export async function applyExtractionToReceiptDraft(
   supabase: any,
   receiptId: string,
@@ -713,7 +510,7 @@ export async function applyExtractionToReceiptDraft(
   }
 
   const file = await loadReceiptFile(supabase, receipt)
-  const extracted = await addMaterialSuggestions(supabase, await extractReceiptWithGemini(file))
+  const extracted = await extractReceiptWithGemini(file)
 
   if (existingItems.length > 0 && options.replaceItems) {
     const { error: deleteError } = await supabase
@@ -792,10 +589,13 @@ export async function applyExtractionToReceiptDraft(
     createdBy: options.userId,
   })
 
-  const items = await listReceiptItems(supabase, receiptId)
+  const matched = rows.length > 0
+    ? await fillAndMatchExtractedItems(supabase, receiptId, options.userId)
+    : { items: await listReceiptItems(supabase, receiptId) }
+
   return {
     receipt: updatedReceipt,
-    items,
+    items: matched.items,
     extraction: {
       confidence: extracted.confidence,
       warnings: extracted.warnings,
@@ -803,6 +603,11 @@ export async function applyExtractionToReceiptDraft(
       replacedItems: existingItems.length,
     },
   }
+}
+
+async function fillAndMatchExtractedItems(supabase: any, receiptId: string, userId: string) {
+  await fillMissingReceiptItemUoms(supabase, receiptId, userId)
+  return autoMatchReceiptItemMaterials(supabase, receiptId, userId)
 }
 
 export async function attachReceiptFile(

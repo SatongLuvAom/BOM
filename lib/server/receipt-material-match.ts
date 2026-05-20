@@ -20,6 +20,12 @@ type ReceiptMatchItem = {
   review_status: string
 }
 
+type UomRelation = {
+  id?: string | null
+  uom_code: string | null
+  uom_name_th: string | null
+}
+
 type MaterialMatchRow = {
   id: string
   material_id: string
@@ -33,12 +39,23 @@ type MaterialMatchRow = {
   code_spec_key: string | null
   base_uom: string | null
   base_uom_id: string | null
+  category?: {
+    cat_code: string | null
+    cat_name_th: string | null
+  } | null
+  uom?: UomRelation | null
 }
 
 type AliasRow = {
   material_id: string | null
   alias_name: string | null
   normalized_alias: string | null
+}
+
+type MatchContext = {
+  materials: MaterialMatchRow[]
+  aliasesByMaterialId: Map<string, string[]>
+  supplierMaterialIds: Set<string>
 }
 
 type MatchResult = {
@@ -50,7 +67,7 @@ type MatchResult = {
 export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: string, userId: string) {
   const { data: receipt, error: receiptError } = await supabase
     .from('purchase_receipts')
-    .select('id, status')
+    .select('id, status, supplier_id')
     .eq('id', receiptId)
     .maybeSingle()
 
@@ -58,7 +75,7 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
   if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
   if (receipt.status === 'posted') throw new ReceiptImportError('สลิปนี้ถูกบันทึกเข้าระบบแล้ว จับคู่วัสดุไม่ได้', 400, 'BAD_REQUEST')
 
-  const [{ data: items, error: itemError }, { data: materials, error: materialError }, { data: aliases, error: aliasError }] = await Promise.all([
+  const [{ data: items, error: itemError }, context] = await Promise.all([
     supabase
       .from('purchase_receipt_items')
       .select('id, item_name_raw, raw_text, material_id, suggested_material_id, action, uom_raw, uom_id, unit_price, match_reason, review_status')
@@ -66,68 +83,63 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
       .is('material_id', null)
       .neq('review_status', 'posted')
       .limit(300),
-    supabase
-      .from('mat_master')
-      .select('id, material_id, material_code, mat_name_th, mat_name_en, normalized_name, brand, model, spec, code_spec_key, base_uom, base_uom_id')
-      .eq('is_deleted', false)
-      .limit(3000),
-    supabase
-      .from('mat_alias')
-      .select('material_id, alias_name, normalized_alias')
-      .eq('is_deleted', false)
-      .limit(5000),
+    loadMaterialMatchContext(supabase, receipt.supplier_id),
   ])
 
   if (itemError) throw new ReceiptImportError(itemError.message, 500, 'DATABASE_ERROR', itemError)
-  if (materialError) throw new ReceiptImportError(materialError.message, 500, 'DATABASE_ERROR', materialError)
-  if (aliasError) throw new ReceiptImportError(aliasError.message, 500, 'DATABASE_ERROR', aliasError)
 
   const itemRows = (items ?? []) as ReceiptMatchItem[]
-  const materialRows = (materials ?? []) as MaterialMatchRow[]
-  const aliasesByMaterialId = groupAliases((aliases ?? []) as AliasRow[])
-  const updates = itemRows
-    .map((item) => {
-      const best = bestMaterialMatch(item, materialRows, aliasesByMaterialId)
-      if (!best || best.score < 60) return null
+  const updates = itemRows.map((item) => {
+    const candidates = findMaterialCandidatesForReceiptItem(item, context, 3)
+    const best = candidates[0] ?? null
 
-      const highConfidence = best.score >= 90
-      const nextUomId = !item.uom_id && highConfidence ? best.material.base_uom_id : item.uom_id
-      const nextUomRaw = !item.uom_id && highConfidence ? best.material.base_uom : item.uom_raw
-      const nextReason = appendReason(
+    if (!best) {
+      return {
+        item,
+        highConfidence: false,
+        hasCandidate: false,
+        patch: {
+          suggested_material_id: null,
+          match_confidence: null,
+          match_reason: appendReason(item.match_reason, 'ไม่พบวัสดุในระบบ'),
+          review_status: 'needs_review',
+        },
+      }
+    }
+
+    const highConfidence = best.score >= 90
+    const nextAction = highConfidence && (!item.action || item.action === 'needs_review') ? 'update_price' : item.action
+    const nextUomId = !item.uom_id && highConfidence ? best.material.base_uom_id : item.uom_id
+    const nextUomRaw = !item.uom_id && highConfidence ? best.material.base_uom : item.uom_raw
+    const nextReason = appendReason(
+      appendReason(
         appendReason(item.match_reason, best.reason),
-        nextUomId && !item.uom_id ? 'ใช้หน่วยจากวัสดุ' : '',
-      )
-      const patch = {
+        highConfidence ? 'เลือกให้อัตโนมัติ' : 'พบวัสดุใกล้เคียง',
+      ),
+      nextUomId && !item.uom_id ? 'ใช้หน่วยจากวัสดุ' : '',
+    )
+
+    return {
+      item,
+      highConfidence,
+      hasCandidate: true,
+      patch: {
         material_id: highConfidence ? best.material.id : null,
         suggested_material_id: best.material.id,
         uom_id: nextUomId,
         uom_raw: nextUomRaw,
         match_confidence: best.score,
         match_reason: nextReason,
+        action: nextAction,
         review_status: deriveReceiptItemReviewStatus({
-          action: item.action,
+          action: nextAction,
           material_id: highConfidence ? best.material.id : null,
           uom_id: nextUomId,
           unit_price: item.unit_price,
         }),
-      }
-
-      return { item, best, patch, highConfidence }
-    })
-    .filter(Boolean) as Array<{
-      item: ReceiptMatchItem
-      best: MatchResult
-      patch: {
-        material_id: string | null
-        suggested_material_id: string
-        uom_id: string | null
-        uom_raw: string | null
-        match_confidence: number
-        match_reason: string | null
-        review_status: string
-      }
-      highConfidence: boolean
-    }>
+      },
+    }
+  })
 
   if (updates.length > 0) {
     const results = await Promise.all(updates.map((update) => (
@@ -151,35 +163,114 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
       action: 'AUTO_MATCH_MATERIALS',
       payload: {
         autoSelected: updates.filter((update) => update.highConfidence).length,
-        suggested: updates.filter((update) => !update.highConfidence).length,
+        suggested: updates.filter((update) => update.hasCandidate && !update.highConfidence).length,
+        notFound: updates.filter((update) => !update.hasCandidate).length,
       },
       createdBy: userId,
     })
   }
 
   const refreshedItems = await listReceiptItems(supabase, receiptId)
+  const enrichedItems = await enrichReceiptItemsWithMaterialCandidates(supabase, refreshedItems, receipt.supplier_id)
   return {
-    items: refreshedItems,
+    items: enrichedItems,
     autoSelected: updates.filter((update) => update.highConfidence).length,
-    suggested: updates.filter((update) => !update.highConfidence).length,
-    unresolved: itemRows.length - updates.length,
+    suggested: updates.filter((update) => update.hasCandidate && !update.highConfidence).length,
+    notFound: updates.filter((update) => !update.hasCandidate).length,
+    unresolved: updates.filter((update) => !update.highConfidence).length,
   }
 }
 
-function bestMaterialMatch(
+export async function enrichReceiptItemsWithMaterialCandidates(supabase: any, items: any[], supplierId?: string | null) {
+  const rows = items ?? []
+  if (rows.length === 0) return rows
+
+  const needsCandidates = rows.some((item) => !item.material_id && item.review_status !== 'posted')
+  if (!needsCandidates) return rows
+
+  const context = await loadMaterialMatchContext(supabase, supplierId)
+  return rows.map((item) => {
+    if (item.material_id || item.review_status === 'posted') return item
+    const candidates = findMaterialCandidatesForReceiptItem(item, context, 3).map(toMaterialCandidate)
+    return {
+      ...item,
+      match_candidates: candidates,
+    }
+  })
+}
+
+async function loadMaterialMatchContext(supabase: any, supplierId?: string | null): Promise<MatchContext> {
+  const supplierPromise = supplierId
+    ? supabase
+      .from('mat_supplier_map')
+      .select('material_id')
+      .eq('is_deleted', false)
+      .eq('supplier_id', supplierId)
+      .limit(5000)
+    : Promise.resolve({ data: [], error: null })
+
+  const [{ data: materials, error: materialError }, { data: aliases, error: aliasError }, { data: supplierMaps, error: supplierError }] = await Promise.all([
+    supabase
+      .from('mat_master')
+      .select(`
+        id,
+        material_id,
+        material_code,
+        mat_name_th,
+        mat_name_en,
+        normalized_name,
+        brand,
+        model,
+        spec,
+        code_spec_key,
+        base_uom,
+        base_uom_id,
+        category:mat_category!mat_master_cat_id_fkey(cat_code, cat_name_th),
+        uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
+      `)
+      .eq('is_deleted', false)
+      .limit(3000),
+    supabase
+      .from('mat_alias')
+      .select('material_id, alias_name, normalized_alias')
+      .eq('is_deleted', false)
+      .limit(5000),
+    supplierPromise,
+  ])
+
+  if (materialError) throw new ReceiptImportError(materialError.message, 500, 'DATABASE_ERROR', materialError)
+  if (aliasError) throw new ReceiptImportError(aliasError.message, 500, 'DATABASE_ERROR', aliasError)
+  if (supplierError) throw new ReceiptImportError(supplierError.message, 500, 'DATABASE_ERROR', supplierError)
+
+  return {
+    materials: (materials ?? []) as MaterialMatchRow[],
+    aliasesByMaterialId: groupAliases((aliases ?? []) as AliasRow[]),
+    supplierMaterialIds: new Set((supplierMaps ?? []).map((row: { material_id: string | null }) => row.material_id).filter(Boolean) as string[]),
+  }
+}
+
+function findMaterialCandidatesForReceiptItem(item: ReceiptMatchItem, context: MatchContext, limit: number) {
+  return context.materials
+    .map((material) => {
+      const result = scoreMaterialForReceiptItem(
+        item,
+        material,
+        context.aliasesByMaterialId.get(material.material_id) ?? [],
+        context.supplierMaterialIds,
+      )
+      return { material, ...result }
+    })
+    .filter((result) => result.score >= 70)
+    .sort((left, right) => right.score - left.score || getMaterialLabel(left.material).localeCompare(getMaterialLabel(right.material)))
+    .slice(0, limit)
+}
+
+function scoreMaterialForReceiptItem(
   item: ReceiptMatchItem,
-  materials: MaterialMatchRow[],
-  aliasesByMaterialId: Map<string, string[]>,
+  material: MaterialMatchRow,
+  aliases: string[],
+  supplierMaterialIds: Set<string>,
 ) {
-  let best: MatchResult | null = null
-  for (const material of materials) {
-    const result = scoreMaterialForReceiptItem(item, material, aliasesByMaterialId.get(material.material_id) ?? [])
-    if (result.score > (best?.score ?? 0)) best = { material, ...result }
-  }
-  return best
-}
-
-function scoreMaterialForReceiptItem(item: ReceiptMatchItem, material: MaterialMatchRow, aliases: string[]) {
   const itemText = normalizeMaterialSearchText([item.item_name_raw, item.raw_text].filter(Boolean).join(' '))
   const itemName = normalizeMaterialSearchText(item.item_name_raw)
   const materialCode = normalizeMaterialSearchText(material.material_code ?? material.material_id)
@@ -232,14 +323,48 @@ function scoreMaterialForReceiptItem(item: ReceiptMatchItem, material: MaterialM
     }
   }
 
-  if (score > 0 && hasSpecConflict(itemText, material)) {
+  if (score > 0 && supplierMaterialIds.has(material.material_id)) {
+    score = Math.min(98, score + 5)
+    reason = appendReason(reason, 'ซัพพลายเออร์ตรงกับสลิป') ?? reason
+  }
+
+  const specState = compareSpecTokens(item.item_name_raw || item.raw_text || '', material)
+  if (score > 0 && specState === 'conflict') {
     return {
       score: Math.min(score, 80),
-      reason: 'ชื่อ/สเปกใกล้เคียงแต่สเปกต่างกัน ต้องตรวจสอบ',
+      reason: 'ชื่อใกล้เคียงแต่สเปกต่างกัน',
+    }
+  }
+  if (score >= 90 && specState === 'missing_material_spec') {
+    return {
+      score: 80,
+      reason: 'พบสินค้าใกล้เคียง แต่ไม่มีสเปก/สีในวัสดุ ต้องตรวจสอบ',
     }
   }
 
   return { score, reason }
+}
+
+function toMaterialCandidate(result: MatchResult) {
+  return {
+    id: result.material.id,
+    material_id: result.material.material_id,
+    material_code: result.material.material_code,
+    mat_name_th: result.material.mat_name_th ?? result.material.mat_name_en ?? result.material.material_code ?? result.material.material_id,
+    mat_name_en: result.material.mat_name_en,
+    spec: result.material.spec,
+    code_spec_key: result.material.code_spec_key,
+    base_uom: result.material.base_uom,
+    base_uom_id: result.material.base_uom_id,
+    category: result.material.category,
+    uom: result.material.uom,
+    match_confidence: result.score,
+    match_reason: result.reason,
+  }
+}
+
+function getMaterialLabel(material: MaterialMatchRow) {
+  return material.material_code ?? material.mat_name_th ?? material.mat_name_en ?? material.material_id
 }
 
 function groupAliases(rows: AliasRow[]) {
@@ -279,10 +404,9 @@ function tokenSimilarity(left: string, right: string) {
   return intersection / (leftTokens.size + rightTokens.size - intersection)
 }
 
-function hasSpecConflict(itemText: string, material: MaterialMatchRow) {
+function compareSpecTokens(itemText: string, material: MaterialMatchRow) {
   const itemTokens = specTokens(itemText)
   const materialTokens = specTokens([
-    material.material_code,
     material.code_spec_key,
     material.spec,
     material.mat_name_th,
@@ -290,11 +414,12 @@ function hasSpecConflict(itemText: string, material: MaterialMatchRow) {
     material.model,
   ].filter(Boolean).join(' '))
 
-  if (itemTokens.size === 0 || materialTokens.size === 0) return false
+  if (itemTokens.size === 0) return 'none'
+  if (materialTokens.size === 0) return 'missing_material_spec'
   for (const token of itemTokens) {
-    if (materialTokens.has(token)) return false
+    if (materialTokens.has(token)) return 'match'
   }
-  return true
+  return 'conflict'
 }
 
 function specTokens(value: string | null | undefined) {
@@ -310,6 +435,8 @@ function specTokens(value: string | null | undefined) {
 
   const tokens = new Set<string>()
   const patterns = [
+    /\b[A-Z]\d{3,5}\b/g,
+    /\b\d{4}\b/g,
     /\b\d{1,4}(?:\.\d+)?(?:MM|CM|M|W|V)\b/g,
     /\b\d{2,4}X\d{2,4}(?:X\d{1,4})?(?:MM|CM|M)?\b/g,
     /\b\d{3}[A-Z]?\b/g,
@@ -337,8 +464,8 @@ function addSpecToken(tokens: Set<string>, token: string) {
     }
   }
 
-  const threeDigit = token.match(/^\d{3}$/)
-  if (threeDigit) {
+  const threeOrFourDigit = token.match(/^\d{3,4}$/)
+  if (threeOrFourDigit) {
     const no = Number(token)
     if (Number.isFinite(no)) tokens.add(`${no}MM`)
   }

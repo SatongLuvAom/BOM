@@ -97,10 +97,13 @@ export interface PurchaseReceiptItem {
   updated_at: string
   material?: ReceiptMaterial | null
   suggested_material?: ReceiptMaterial | null
+  match_candidates?: MaterialCandidate[] | null
   uom?: ReceiptUom | null
 }
 
 export interface MaterialCandidate extends ReceiptMaterial {
+  match_confidence?: number | null
+  match_reason?: string | null
   latest_price?: {
     unit_price: number | null
     price_uom: string | null
