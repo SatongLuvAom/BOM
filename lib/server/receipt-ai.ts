@@ -11,7 +11,11 @@ import {
 
 const RECEIPT_BUCKET = 'boq-attachments'
 const MAX_AI_FILE_SIZE = 10 * 1024 * 1024
-const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash'
+const GEMINI_MODEL_FALLBACK_ORDER = [
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-3.5-flash',
+]
 
 const supportedMimeTypes = new Set([
   'image/jpeg',
@@ -320,8 +324,6 @@ async function callGemini(file: ReceiptFile) {
     throw new ReceiptImportError('ยังไม่ได้ตั้งค่า GEMINI_API_KEY', 503, 'BAD_REQUEST')
   }
 
-  const model = (process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim().replace(/^models\//, '')
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
   const baseParts = [
     {
       inline_data: {
@@ -342,22 +344,45 @@ async function callGemini(file: ReceiptFile) {
     },
   }
 
+  let lastFailure: { status: number; text: string; model: string } | null = null
+  for (const model of GEMINI_MODEL_FALLBACK_ORDER) {
+    const result = await requestGeminiModel(apiKey, model, baseBody)
+    if (result.ok) {
+      return extractGeminiText(result.text)
+    }
+
+    lastFailure = result
+    if (!shouldFallbackGeminiModel(result.status, result.text)) break
+  }
+
+  if (lastFailure) {
+    throw new ReceiptImportError('ไม่สามารถอ่านไฟล์นี้ได้ กรุณากรอกข้อมูลเอง', 502, 'BAD_REQUEST', {
+      status: lastFailure.status,
+      model: lastFailure.model,
+      message: lastFailure.text.slice(0, 500),
+    })
+  }
+
+  throw new ReceiptImportError('ไม่สามารถอ่านไฟล์นี้ได้ กรุณากรอกข้อมูลเอง', 502, 'BAD_REQUEST')
+}
+
+async function requestGeminiModel(apiKey: string, model: string, baseBody: Record<string, unknown>) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+  const headers = {
+    'Content-Type': 'application/json',
+    'x-goog-api-key': apiKey,
+  }
+
   let res = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    },
+    headers,
     body: JSON.stringify(baseBody),
   })
 
   if (!res.ok && res.status === 400) {
     res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
+      headers,
       body: JSON.stringify({
         ...baseBody,
         generationConfig: {
@@ -368,14 +393,28 @@ async function callGemini(file: ReceiptFile) {
     })
   }
 
-  const responseText = await res.text()
-  if (!res.ok) {
-    throw new ReceiptImportError('ไม่สามารถอ่านไฟล์นี้ได้ กรุณากรอกข้อมูลเอง', 502, 'BAD_REQUEST', {
-      status: res.status,
-      message: responseText.slice(0, 500),
-    })
+  return {
+    ok: res.ok,
+    status: res.status,
+    model,
+    text: await res.text(),
   }
+}
 
+function shouldFallbackGeminiModel(status: number, responseText: string) {
+  const text = responseText.toLowerCase()
+  return (
+    status === 429
+    || status === 500
+    || status === 503
+    || text.includes('resource_exhausted')
+    || text.includes('unavailable')
+    || text.includes('overloaded')
+    || text.includes('capacity')
+  )
+}
+
+function extractGeminiText(responseText: string) {
   let json: any
   try {
     json = JSON.parse(responseText)

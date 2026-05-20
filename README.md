@@ -57,7 +57,7 @@ Where to find each value:
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Developers > Messaging API channel > Messaging API > Channel access token
 - `LINE_BOT_API_BASE_URL`: keep `https://api.line.me`
 - `ANTHROPIC_API_KEY`: optional, required only for AI price suggestion
-- `GEMINI_API_KEY`: optional, required only for Receipt Import AI/OCR
+- `GEMINI_API_KEY`: optional, required only for Receipt Import AI/OCR. Receipt extraction tries Gemini 2.5 Flash first, then Gemini 2.5 Flash Lite, then Gemini 3.5 Flash when earlier models are rate-limited or unavailable.
 
 Do not put Supabase `secret` or `service_role` keys in `NEXT_PUBLIC_*` variables.
 
