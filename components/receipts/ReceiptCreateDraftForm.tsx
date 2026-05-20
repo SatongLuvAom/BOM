@@ -40,7 +40,7 @@ const progressSteps: Array<{ stage: ProgressStage; plannedLabel: string; activeL
   { stage: 'redirecting', plannedLabel: 'เปิดหน้าตรวจสอบ', activeLabel: 'กำลังเปิดหน้าตรวจสอบ...' },
 ]
 
-const missingReceiptIdMessage = 'สร้าง Draft แล้ว แต่ไม่พบรหัสสลิปสำหรับเปิดหน้าตรวจสอบ กรุณาไปที่รายการนำเข้าราคาจากสลิป'
+const missingReceiptIdMessage = 'สร้าง Draft แล้ว แต่ไม่พบรหัสสลิปสำหรับเปิดหน้าตรวจสอบ'
 
 type ReceiptImportNotice = {
   type: 'message' | 'warning'

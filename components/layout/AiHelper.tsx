@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/lib/i18n/client'
 
@@ -16,16 +17,14 @@ const suggestions = [
     href: '/boq/new',
     hintKey: 'aiHelper.suggestions.boqHint',
   },
-  {
-    labelKey: 'aiHelper.suggestions.health',
-    href: '/settings/system',
-    hintKey: 'aiHelper.suggestions.healthHint',
-  },
 ]
 
 export function AiHelper() {
   const [open, setOpen] = useState(false)
+  const pathname = usePathname()
   const { t } = useI18n()
+
+  if (pathname.startsWith('/receipts')) return null
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-50 print:hidden">
@@ -106,4 +105,3 @@ export function AiHelper() {
     </div>
   )
 }
-

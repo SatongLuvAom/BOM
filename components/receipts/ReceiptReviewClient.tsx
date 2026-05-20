@@ -225,7 +225,8 @@ export function ReceiptReviewClient({
     }
   }
 
-  async function readReceiptWithAi() {
+  async function readReceiptWithAi(event?: React.MouseEvent<HTMLButtonElement>) {
+    event?.preventDefault()
     if (isPosted || !hasReceiptFile) return
     let replaceItems = false
     if (items.length > 0) {
@@ -243,7 +244,7 @@ export function ReceiptReviewClient({
       })
       const json = await res.json()
       if (!res.ok) {
-        setError(json.error ?? 'ไม่สามารถอ่านไฟล์นี้ได้ กรุณากรอกข้อมูลเอง')
+        setError(json.error ?? 'อ่านสลิปไม่สำเร็จ กรุณากรอกข้อมูลเองหรือลองใหม่')
         return
       }
       setReceipt(json.data.receipt)
