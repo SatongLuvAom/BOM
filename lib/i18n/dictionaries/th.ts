@@ -27,6 +27,7 @@ export const th: Dictionary = {
     categories: 'หมวดหมู่วัสดุ',
     uom: 'หน่วยนับ',
     suppliers: 'ซัพพลายเออร์',
+    receipts: 'นำเข้าราคาจากสลิป',
     boq: 'ใบเสนอราคา / BOQ',
     customers: 'ลูกค้า',
     templates: 'เทมเพลต',
@@ -179,6 +180,11 @@ export const th: Dictionary = {
       body: 'จัดการประวัติราคา ราคาล่าสุดถูกคำนวณจาก price history และไม่ทับ snapshot ราคาเก่าใน BOQ',
       steps: ['เพิ่มราคาซัพพลายเออร์ใหม่เมื่อมีข้อมูล', 'ใส่ quote date และ valid until ถ้ามี', 'ตรวจ warning ราคาเก่าแล้วหรือหมดอายุ'],
     },
+    receipts: {
+      title: 'นำเข้าราคาจากสลิป',
+      body: 'สร้าง Draft สลิปซื้อวัสดุ กรอกหัวสลิปและรายการด้วยตัวเอง เลือกวัสดุจาก Material Master แล้วบันทึกราคาเข้าระบบหลังตรวจสอบ',
+      steps: ['สร้าง Draft ใหม่และเลือกซัพพลายเออร์', 'เพิ่มรายการจากสลิปและเลือกวัสดุที่ตรงกัน', 'เลือก action ต่อรายการ แล้วกดบันทึกราคาเข้าระบบเมื่อพร้อม'],
+    },
     customers: {
       title: 'ลูกค้า',
       body: 'จัดการข้อมูลลูกค้าที่ใช้กับ BOQ project และรายงาน',
@@ -224,6 +230,7 @@ export const th: Dictionary = {
     'Add Supplier': 'เพิ่มซัพพลายเออร์',
     'Edit Supplier': 'แก้ไขซัพพลายเออร์',
     'Add Base Price': 'เพิ่มราคาวัสดุ',
+    'Receipt Import': 'นำเข้าราคาจากสลิป',
     'Edit Price': 'แก้ไขราคา',
     'Price Detail': 'รายละเอียดราคา',
     'System Health': 'สถานะระบบ',

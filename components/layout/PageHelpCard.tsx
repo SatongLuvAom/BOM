@@ -26,6 +26,7 @@ function normalizeHelpKey(pathname: string) {
   if (pathname.startsWith('/uom')) return 'uom'
   if (pathname.startsWith('/suppliers')) return 'suppliers'
   if (pathname.startsWith('/prices')) return 'prices'
+  if (pathname.startsWith('/receipts')) return 'receipts'
   if (pathname.startsWith('/customers')) return 'customers'
   if (pathname.startsWith('/reports')) return 'reports'
   if (pathname.startsWith('/settings')) return 'settings'

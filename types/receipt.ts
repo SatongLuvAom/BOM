@@ -1,0 +1,105 @@
+export type ReceiptStatus = 'draft' | 'needs_review' | 'reviewed' | 'posted' | 'rejected'
+
+export type ReceiptItemAction =
+  | 'update_price'
+  | 'create_material_needed'
+  | 'ignore'
+  | 'needs_review'
+
+export type ReceiptItemReviewStatus = 'needs_review' | 'reviewed' | 'posted' | 'ignored'
+
+export interface ReceiptSupplier {
+  id: string
+  supplier_id: string
+  supplier_code: string | null
+  supplier_name_th: string
+}
+
+export interface PurchaseReceipt {
+  id: string
+  receipt_no: string | null
+  receipt_date: string | null
+  supplier_id: string | null
+  supplier_name_raw: string | null
+  supplier_tax_id_raw: string | null
+  subtotal: number | null
+  vat: number | null
+  discount: number | null
+  grand_total: number | null
+  file_url: string | null
+  file_name: string | null
+  file_mime_type: string | null
+  status: ReceiptStatus
+  confidence: number | null
+  notes: string | null
+  created_by: string | null
+  reviewed_by: string | null
+  posted_by: string | null
+  created_at: string
+  updated_at: string
+  reviewed_at: string | null
+  posted_at: string | null
+  supplier?: ReceiptSupplier | null
+  item_count?: number
+}
+
+export interface ReceiptMaterial {
+  id: string
+  material_id: string
+  material_code: string | null
+  mat_name_th: string
+  mat_name_en: string | null
+  spec: string | null
+  code_spec_key: string | null
+  base_uom: string | null
+  category?: {
+    cat_code: string | null
+    cat_name_th: string | null
+  } | null
+  uom?: {
+    uom_code: string | null
+    uom_name_th: string | null
+  } | null
+}
+
+export interface ReceiptUom {
+  id: string
+  uom_code: string
+  uom_name_th: string
+}
+
+export interface PurchaseReceiptItem {
+  id: string
+  receipt_id: string
+  line_no: number | null
+  raw_text: string | null
+  item_name_raw: string | null
+  item_name_normalized: string | null
+  qty: number | null
+  uom_raw: string | null
+  uom_id: string | null
+  unit_price: number | null
+  line_total: number | null
+  vat_amount: number | null
+  discount_amount: number | null
+  suggested_material_id: string | null
+  material_id: string | null
+  match_confidence: number | null
+  match_reason: string | null
+  review_status: ReceiptItemReviewStatus
+  action: ReceiptItemAction | null
+  created_at: string
+  updated_at: string
+  material?: ReceiptMaterial | null
+  suggested_material?: ReceiptMaterial | null
+  uom?: ReceiptUom | null
+}
+
+export interface MaterialCandidate extends ReceiptMaterial {
+  latest_price?: {
+    unit_price: number | null
+    price_uom: string | null
+    supplier_name: string | null
+    effective_date: string | null
+  } | null
+}

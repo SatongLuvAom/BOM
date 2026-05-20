@@ -25,6 +25,7 @@ type IconName =
   | 'list'
   | 'users'
   | 'file'
+  | 'receipt'
   | 'template'
   | 'chart'
 
@@ -43,6 +44,7 @@ const matItems: NavItem[] = [
   { labelKey: 'nav.categories', href: '/categories', icon: 'list' },
   { labelKey: 'nav.uom', href: '/uom', icon: 'list' },
   { labelKey: 'nav.suppliers', href: '/suppliers', icon: 'users' },
+  { labelKey: 'nav.receipts', href: '/receipts', icon: 'receipt' },
 ]
 
 const boqItems: NavItem[] = [
@@ -133,6 +135,12 @@ function NavIcon({ name }: { name: IconName }) {
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
         <path d="M14 2v6h6" />
         <path d="M16 13H8M16 17H8" />
+      </>
+    ),
+    receipt: (
+      <>
+        <path d="M4 3v18l2-1.5L8 21l2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5V3z" />
+        <path d="M8 7h8M8 11h8M8 15h5" />
       </>
     ),
     template: (

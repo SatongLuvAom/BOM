@@ -27,6 +27,7 @@ export const en: Dictionary = {
     categories: 'Categories',
     uom: 'UOM',
     suppliers: 'Suppliers',
+    receipts: 'Receipt Import',
     boq: 'BOQ Projects',
     customers: 'Customers',
     templates: 'Templates',
@@ -179,6 +180,11 @@ export const en: Dictionary = {
       body: 'Maintain price history. Latest price is derived from price history and does not overwrite old BOQ snapshots.',
       steps: ['Add new supplier price records.', 'Use quote date and valid until when available.', 'Review stale or expired price warnings.'],
     },
+    receipts: {
+      title: 'Receipt Import',
+      body: 'Create receipt drafts, manually review line items, match them to Material Master, and post approved items into price history.',
+      steps: ['Create a draft and select supplier.', 'Add receipt line items and choose matching materials.', 'Set each item action, then post reviewed prices when ready.'],
+    },
     customers: {
       title: 'Customers',
       body: 'Manage customer records used by BOQ projects and reporting.',
@@ -224,6 +230,7 @@ export const en: Dictionary = {
     'Add Supplier': 'Add Supplier',
     'Edit Supplier': 'Edit Supplier',
     'Add Base Price': 'Add Base Price',
+    'Receipt Import': 'Receipt Import',
     'Edit Price': 'Edit Price',
     'Price Detail': 'Price Detail',
     'System Health': 'System Health',
