@@ -48,6 +48,7 @@ type MaterialMatchRow = {
 
 type AliasRow = {
   material_id: string | null
+  material_uuid?: string | null
   alias_name: string | null
   normalized_alias: string | null
 }
@@ -203,7 +204,7 @@ async function loadMaterialMatchContext(supabase: any, supplierId?: string | nul
   const supplierPromise = supplierId
     ? supabase
       .from('mat_supplier_map')
-      .select('material_id')
+      .select('material_id, material_uuid')
       .eq('is_deleted', false)
       .eq('supplier_id', supplierId)
       .limit(5000)
@@ -232,7 +233,7 @@ async function loadMaterialMatchContext(supabase: any, supplierId?: string | nul
       .limit(3000),
     supabase
       .from('mat_alias')
-      .select('material_id, alias_name, normalized_alias')
+      .select('material_id, material_uuid, alias_name, normalized_alias')
       .eq('is_deleted', false)
       .limit(5000),
     supplierPromise,
@@ -245,7 +246,10 @@ async function loadMaterialMatchContext(supabase: any, supplierId?: string | nul
   return {
     materials: (materials ?? []) as MaterialMatchRow[],
     aliasesByMaterialId: groupAliases((aliases ?? []) as AliasRow[]),
-    supplierMaterialIds: new Set((supplierMaps ?? []).map((row: { material_id: string | null }) => row.material_id).filter(Boolean) as string[]),
+    supplierMaterialIds: new Set((supplierMaps ?? []).flatMap((row: { material_id: string | null; material_uuid?: string | null }) => [
+      row.material_id,
+      row.material_uuid,
+    ]).filter(Boolean) as string[]),
   }
 }
 
@@ -255,7 +259,7 @@ function findMaterialCandidatesForReceiptItem(item: ReceiptMatchItem, context: M
       const result = scoreMaterialForReceiptItem(
         item,
         material,
-        context.aliasesByMaterialId.get(material.material_id) ?? [],
+        getMaterialAliases(material, context.aliasesByMaterialId),
         context.supplierMaterialIds,
       )
       return { material, ...result }
@@ -323,7 +327,7 @@ function scoreMaterialForReceiptItem(
     }
   }
 
-  if (score > 0 && supplierMaterialIds.has(material.material_id)) {
+  if (score > 0 && getMaterialKeys(material).some((key) => supplierMaterialIds.has(key))) {
     score = Math.min(98, score + 5)
     reason = appendReason(reason, 'ซัพพลายเออร์ตรงกับสลิป') ?? reason
   }
@@ -370,12 +374,23 @@ function getMaterialLabel(material: MaterialMatchRow) {
 function groupAliases(rows: AliasRow[]) {
   const aliases = new Map<string, string[]>()
   for (const row of rows) {
-    if (!row.material_id) continue
+    const keys = [row.material_id, row.material_uuid].filter(Boolean) as string[]
+    if (keys.length === 0) continue
     const values = [row.alias_name, row.normalized_alias].filter(Boolean) as string[]
     if (values.length === 0) continue
-    aliases.set(row.material_id, [...(aliases.get(row.material_id) ?? []), ...values])
+    for (const key of keys) {
+      aliases.set(key, [...(aliases.get(key) ?? []), ...values])
+    }
   }
   return aliases
+}
+
+function getMaterialKeys(material: MaterialMatchRow) {
+  return [material.id, material.material_id].filter(Boolean)
+}
+
+function getMaterialAliases(material: MaterialMatchRow, aliasesByMaterialId: Map<string, string[]>) {
+  return Array.from(new Set(getMaterialKeys(material).flatMap((key) => aliasesByMaterialId.get(key) ?? [])))
 }
 
 function bestAliasScore(itemText: string, aliases: string[]) {
