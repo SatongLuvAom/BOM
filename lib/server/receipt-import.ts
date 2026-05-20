@@ -183,10 +183,38 @@ function normalizeReceiptPayload(input: CreateReceiptDraftInput | UpdateReceiptD
   }
 }
 
-function nextReviewStatus(action: string | null | undefined, requested?: string | null) {
-  if (requested && requested !== 'needs_review') return requested
-  if (action === 'update_price' || action === 'ignore' || action === 'create_material_needed') return 'reviewed'
+export function deriveReceiptItemReviewStatus(input: {
+  action?: string | null
+  material_id?: string | null
+  uom_id?: string | null
+  unit_price?: number | null
+  review_status?: string | null
+}) {
+  if (input.review_status === 'posted') return 'posted'
+
+  const action = input.action || null
+  if (action === 'ignore') return 'reviewed'
+  if (action === 'create_material_needed') return 'needs_review'
+  if (action === 'update_price') {
+    return input.material_id && input.uom_id && Number(input.unit_price ?? 0) > 0
+      ? 'reviewed'
+      : 'needs_review'
+  }
+
   return 'needs_review'
+}
+
+function assertReviewStatusAllowed(input: {
+  action?: string | null
+  material_id?: string | null
+  uom_id?: string | null
+  unit_price?: number | null
+  review_status?: string | null
+}) {
+  if (input.review_status !== 'reviewed' || input.action !== 'update_price') return
+  if (!input.material_id) throw new ReceiptImportError('กรุณาเลือกวัสดุก่อนตั้งเป็นตรวจแล้ว', 400, 'VALIDATION_ERROR')
+  if (!input.uom_id) throw new ReceiptImportError('กรุณาเลือกหน่วยก่อนตั้งเป็นตรวจแล้ว', 400, 'VALIDATION_ERROR')
+  if (!input.unit_price || Number(input.unit_price) <= 0) throw new ReceiptImportError('กรุณากรอกราคา/หน่วยก่อนตั้งเป็นตรวจแล้ว', 400, 'VALIDATION_ERROR')
 }
 
 function normalizeReceiptItemPayload(input: CreateReceiptItemInput | UpdateReceiptItemInput) {
@@ -210,7 +238,13 @@ function normalizeReceiptItemPayload(input: CreateReceiptItemInput | UpdateRecei
     match_confidence: input.match_confidence,
     match_reason: normalizeNullableText(input.match_reason),
     action,
-    review_status: nextReviewStatus(action, input.review_status),
+    review_status: deriveReceiptItemReviewStatus({
+      action,
+      material_id: input.material_id ?? null,
+      uom_id: input.uom_id ?? null,
+      unit_price: input.unit_price,
+      review_status: input.review_status,
+    }),
   }
 }
 
@@ -350,10 +384,13 @@ export async function updateReceiptItem(supabase: any, receiptId: string, itemId
 
   if (beforeError) throw new ReceiptImportError(beforeError.message, 500, 'DATABASE_ERROR', beforeError)
   if (!before) throw new ReceiptImportError('Receipt item not found', 404, 'NOT_FOUND')
+  if (before.review_status === 'posted') throw new ReceiptImportError('รายการนี้บันทึกราคาแล้ว แก้ไขจากหน้านี้ไม่ได้', 400, 'BAD_REQUEST')
 
+  const mergedItem = { ...before, ...input }
+  assertReviewStatusAllowed(mergedItem)
   const { data, error } = await supabase
     .from('purchase_receipt_items')
-    .update(normalizeReceiptItemPayload({ ...before, ...input }))
+    .update(normalizeReceiptItemPayload(mergedItem))
     .eq('id', itemId)
     .eq('receipt_id', receiptId)
     .select(RECEIPT_ITEM_SELECT)
@@ -386,6 +423,7 @@ export async function deleteReceiptItem(supabase: any, receiptId: string, itemId
 
   if (beforeError) throw new ReceiptImportError(beforeError.message, 500, 'DATABASE_ERROR', beforeError)
   if (!before) throw new ReceiptImportError('Receipt item not found', 404, 'NOT_FOUND')
+  if (before.review_status === 'posted') throw new ReceiptImportError('รายการนี้บันทึกราคาแล้ว ลบจากหน้านี้ไม่ได้', 400, 'BAD_REQUEST')
 
   const { error } = await supabase
     .from('purchase_receipt_items')

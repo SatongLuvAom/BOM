@@ -76,6 +76,7 @@ export function ReceiptReviewClient({
   const [uploadingFile, setUploadingFile] = useState(false)
   const [readingAi, setReadingAi] = useState(false)
   const [fillingUoms, setFillingUoms] = useState(false)
+  const [matchingMaterials, setMatchingMaterials] = useState(false)
   const [message, setMessage] = useState<string | null>(initialMessage)
   const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
@@ -296,6 +297,24 @@ export function ReceiptReviewClient({
     }
   }
 
+  async function autoMatchMaterials() {
+    if (isPosted || matchingMaterials) return
+    setMatchingMaterials(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/items/auto-match-materials`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'จับคู่วัสดุอัตโนมัติไม่สำเร็จ')
+        return
+      }
+      setItems(json.data.items ?? [])
+      setMessage(`จับคู่วัสดุแล้ว ${json.data.autoSelected ?? 0} รายการ, พบวัสดุใกล้เคียง ${json.data.suggested ?? 0} รายการ, ยังต้องตรวจสอบ ${json.data.unresolved ?? 0} รายการ`)
+    } finally {
+      setMatchingMaterials(false)
+    }
+  }
+
   async function postReceipt() {
     if (postBlockers.length > 0 || isPosted) return
     if (!confirm('บันทึกราคาเข้าระบบ Material Master จากสลิปนี้?')) return
@@ -503,16 +522,21 @@ export function ReceiptReviewClient({
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {!isPosted && (
-              <button disabled={fillingUoms} type="button" onClick={fillMissingUoms} className="btn-secondary">
+              <button disabled={matchingMaterials || fillingUoms || posting || postingReady} type="button" onClick={autoMatchMaterials} className="btn-secondary">
+                {matchingMaterials ? 'กำลังจับคู่วัสดุ...' : 'จับคู่วัสดุอัตโนมัติ'}
+              </button>
+            )}
+            {!isPosted && (
+              <button disabled={fillingUoms || matchingMaterials || posting || postingReady} type="button" onClick={fillMissingUoms} className="btn-secondary">
                 {fillingUoms ? 'กำลังเติมหน่วย...' : 'เติมหน่วยอัตโนมัติ'}
               </button>
             )}
             {!isPosted && (
-              <button disabled={postingReady || posting || readiness.ready === 0} type="button" onClick={postReadyItems} className="btn-primary">
+              <button disabled={postingReady || posting || matchingMaterials || readiness.ready === 0} type="button" onClick={postReadyItems} className="btn-primary">
                 {postingReady ? 'กำลังบันทึก...' : `บันทึกราคาที่พร้อมทั้งหมด (${readiness.ready})`}
               </button>
             )}
-            <button disabled={isPosted || posting || postingReady || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
+            <button disabled={isPosted || posting || postingReady || matchingMaterials || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
               {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
             </button>
           </div>
@@ -570,6 +594,7 @@ export function ReceiptReviewClient({
               )}
               {items.map((item) => {
                 const rowLocked = isPosted || item.review_status === 'posted'
+                const readinessDetail = getReceiptItemReadiness(item)
                 return (
                 <tr key={item.id}>
                   <td className="min-w-[260px]">
@@ -612,9 +637,12 @@ export function ReceiptReviewClient({
                     </select>
                   </td>
                   <td>
-                    <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${item.review_status === 'needs_review' ? 'border-amber-200 bg-amber-50 text-amber-700' : item.review_status === 'posted' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
-                      {item.review_status === 'needs_review' ? 'ต้องตรวจสอบ' : item.review_status === 'posted' ? 'บันทึกแล้ว' : item.review_status === 'ignored' ? 'ข้ามแล้ว' : 'ตรวจแล้ว'}
+                    <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${readinessDetail.className}`}>
+                      {readinessDetail.label}
                     </span>
+                    {readinessDetail.helper && (
+                      <p className="mt-1 text-[11px] font-semibold text-slate-500">{readinessDetail.helper}</p>
+                    )}
                   </td>
                   <td>
                     <div className="flex justify-end gap-2">
@@ -658,6 +686,7 @@ function MaterialPicker({
   const [loading, setLoading] = useState(false)
   const [candidates, setCandidates] = useState<MaterialCandidate[]>([])
   const selected = item.material
+  const suggested = item.suggested_material
 
   async function search() {
     if (query.trim().length < 2) return
@@ -677,6 +706,22 @@ function MaterialPicker({
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
           <p className="truncate text-xs font-bold text-emerald-800">{selected.material_code || selected.material_id}</p>
           <p className="truncate text-xs text-emerald-700">{selected.mat_name_th}</p>
+        </div>
+      ) : suggested ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold text-amber-700">พบวัสดุใกล้เคียง</p>
+              <p className="truncate text-xs font-bold text-amber-900">{suggested.material_code || suggested.material_id}</p>
+              <p className="truncate text-xs text-amber-800">{suggested.mat_name_th}</p>
+              {item.match_reason && <p className="mt-1 line-clamp-2 text-[11px] text-amber-700">{item.match_reason}</p>}
+            </div>
+            {!disabled && (
+              <button type="button" onClick={() => onSelect(suggested as MaterialCandidate)} className="shrink-0 rounded-lg border border-amber-300 bg-white px-2 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-100">
+                เลือกวัสดุ
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <p className="text-xs font-semibold text-slate-400">ยังไม่ได้เลือกวัสดุ</p>
@@ -804,6 +849,7 @@ function toHeaderPayload(form: HeaderForm) {
 }
 
 function toItemPayload(item: PurchaseReceiptItem) {
+  const action = item.action ?? 'needs_review'
   return {
     line_no: item.line_no,
     raw_text: item.raw_text,
@@ -819,8 +865,91 @@ function toItemPayload(item: PurchaseReceiptItem) {
     material_id: item.material_id,
     match_confidence: item.match_confidence,
     match_reason: item.match_reason,
-    action: item.action ?? 'needs_review',
-    review_status: item.action && item.action !== 'needs_review' ? 'reviewed' : item.review_status,
+    action,
+    review_status: getClientReviewStatus(item),
+  }
+}
+
+function getClientReviewStatus(item: PurchaseReceiptItem) {
+  if (item.review_status === 'posted') return 'posted'
+  if (item.action === 'ignore') return 'reviewed'
+  if (item.action === 'create_material_needed') return 'needs_review'
+  if (item.action === 'update_price') {
+    return item.material_id && item.uom_id && Number(item.unit_price ?? 0) > 0
+      ? 'reviewed'
+      : 'needs_review'
+  }
+  return 'needs_review'
+}
+
+function getReceiptItemReadiness(item: PurchaseReceiptItem) {
+  if (item.review_status === 'posted') {
+    return {
+      key: 'posted',
+      label: 'บันทึกแล้ว',
+      helper: null,
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    }
+  }
+
+  if (item.action === 'ignore') {
+    return {
+      key: 'ignored',
+      label: 'ไม่บันทึกรายการนี้',
+      helper: null,
+      className: 'border-slate-200 bg-slate-50 text-slate-600',
+    }
+  }
+
+  if (item.action === 'create_material_needed') {
+    return {
+      key: 'create_material_needed',
+      label: 'รอสร้างวัสดุใหม่',
+      helper: null,
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+    }
+  }
+
+  if (item.action === 'update_price') {
+    if (!item.material_id) {
+      return {
+        key: 'missing_material',
+        label: 'ยังไม่ได้เลือกวัสดุ',
+        helper: 'ต้องเลือกวัสดุก่อนอัปเดตราคา',
+        className: 'border-red-200 bg-red-50 text-red-700',
+      }
+    }
+    if (!item.uom_id) {
+      return {
+        key: 'missing_uom',
+        label: 'ยังไม่มีหน่วย',
+        helper: null,
+        className: 'border-red-200 bg-red-50 text-red-700',
+      }
+    }
+    if (!item.unit_price || Number(item.unit_price) <= 0) {
+      return {
+        key: 'missing_price',
+        label: 'ยังไม่มีราคา',
+        helper: null,
+        className: 'border-red-200 bg-red-50 text-red-700',
+      }
+    }
+    if (item.review_status === 'reviewed') {
+      return {
+        key: 'ready',
+        label: 'พร้อมบันทึก',
+        helper: null,
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      }
+    }
+  }
+
+  return {
+    key: 'needs_review',
+    label: 'ต้องตรวจสอบ',
+    helper: null,
+    className: 'border-amber-200 bg-amber-50 text-amber-700',
   }
 }
 
@@ -836,25 +965,18 @@ function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean) 
   if (isPosted) return summary
 
   for (const item of items) {
-    if (item.review_status === 'posted' || item.action === 'ignore' || item.action === 'create_material_needed') {
-      continue
-    }
-    if (!item.action || item.action === 'needs_review' || item.review_status === 'needs_review') {
-      summary.needsReview += 1
-      continue
-    }
-    if (item.action !== 'update_price') continue
-
-    const missingMaterial = !item.material_id
-    const missingUom = !item.uom_id
-    const missingPrice = !item.unit_price || item.unit_price <= 0
-
-    if (missingMaterial) summary.missingMaterial += 1
-    if (missingUom) summary.missingUom += 1
-    if (missingPrice) summary.missingPrice += 1
-
-    if (!missingMaterial && !missingUom && !missingPrice && item.review_status === 'reviewed') {
+    const readiness = getReceiptItemReadiness(item)
+    if (readiness.key === 'posted' || readiness.key === 'ignored') continue
+    if (readiness.key === 'ready') {
       summary.ready += 1
+    } else if (readiness.key === 'missing_material') {
+      summary.missingMaterial += 1
+    } else if (readiness.key === 'missing_uom') {
+      summary.missingUom += 1
+    } else if (readiness.key === 'missing_price') {
+      summary.missingPrice += 1
+    } else {
+      summary.needsReview += 1
     }
   }
 
@@ -868,13 +990,13 @@ function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[
   if (!items.some((item) => item.action === 'update_price')) blockers.push('ยังไม่มีรายการที่เลือก "อัปเดตราคา"')
   for (const item of items) {
     const label = item.line_no ? `บรรทัด ${item.line_no}` : item.item_name_raw || item.id
-    if (!item.action || item.action === 'needs_review' || item.review_status === 'needs_review') {
-      blockers.push(`${label} ยังต้องตรวจสอบ`)
-    }
     if (item.action === 'update_price') {
       if (!item.material_id) blockers.push(`${label} ยังไม่ได้เลือกวัสดุ`)
       if (!item.uom_id) blockers.push(`${label} ต้องมีหน่วยก่อนบันทึก`)
       if (!item.unit_price || item.unit_price <= 0) blockers.push(`${label} ราคา/หน่วยไม่ถูกต้อง`)
+      if (getClientReviewStatus(item) !== 'reviewed') blockers.push(`${label} ยังต้องตรวจสอบ`)
+    } else if (!item.action || item.action === 'needs_review') {
+      blockers.push(`${label} ยังต้องตรวจสอบ`)
     }
   }
   return blockers
