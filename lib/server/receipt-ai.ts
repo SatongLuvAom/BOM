@@ -8,6 +8,7 @@ import {
   listReceiptItems,
 } from '@/lib/server/receipt-import'
 import { autoMatchReceiptItemMaterials } from '@/lib/server/receipt-material-match'
+import { generateReceiptMaterialCandidates } from '@/lib/server/receipt-material-candidates'
 import { fillMissingReceiptItemUoms } from '@/lib/server/receipt-uom'
 
 const RECEIPT_BUCKET = 'boq-attachments'
@@ -607,7 +608,8 @@ export async function applyExtractionToReceiptDraft(
 
 async function fillAndMatchExtractedItems(supabase: any, receiptId: string, userId: string) {
   await fillMissingReceiptItemUoms(supabase, receiptId, userId)
-  return autoMatchReceiptItemMaterials(supabase, receiptId, userId)
+  await autoMatchReceiptItemMaterials(supabase, receiptId, userId)
+  return generateReceiptMaterialCandidates(supabase, receiptId, userId)
 }
 
 export async function attachReceiptFile(

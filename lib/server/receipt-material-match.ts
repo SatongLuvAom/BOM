@@ -101,6 +101,7 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
         hasCandidate: false,
         patch: {
           suggested_material_id: null,
+          material_resolution_status: 'unresolved',
           match_confidence: null,
           match_reason: appendReason(item.match_reason, 'ไม่พบวัสดุในระบบ'),
           review_status: 'needs_review',
@@ -127,6 +128,7 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
       patch: {
         material_id: highConfidence ? best.material.id : null,
         suggested_material_id: best.material.id,
+        material_resolution_status: highConfidence ? 'matched_existing' : 'unresolved',
         uom_id: nextUomId,
         uom_raw: nextUomRaw,
         match_confidence: best.score,

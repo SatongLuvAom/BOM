@@ -7,7 +7,10 @@ import type {
   MaterialCandidate,
   PurchaseReceipt,
   PurchaseReceiptItem,
+  ReceiptCategory,
   ReceiptItemAction,
+  ReceiptMaterialCandidate,
+  ReceiptMaterialType,
   ReceiptSupplier,
   ReceiptUom,
 } from '@/types/receipt'
@@ -55,6 +58,8 @@ export function ReceiptReviewClient({
   initialItems,
   suppliers,
   uoms,
+  categories,
+  materialTypes,
   initialMessage = null,
   initialWarning = null,
 }: {
@@ -62,6 +67,8 @@ export function ReceiptReviewClient({
   initialItems: PurchaseReceiptItem[]
   suppliers: ReceiptSupplier[]
   uoms: ReceiptUom[]
+  categories: ReceiptCategory[]
+  materialTypes: ReceiptMaterialType[]
   initialMessage?: string | null
   initialWarning?: string | null
 }) {
@@ -77,6 +84,10 @@ export function ReceiptReviewClient({
   const [readingAi, setReadingAi] = useState(false)
   const [fillingUoms, setFillingUoms] = useState(false)
   const [matchingMaterials, setMatchingMaterials] = useState(false)
+  const [creatingCandidates, setCreatingCandidates] = useState(false)
+  const [candidateDraft, setCandidateDraft] = useState<ReceiptMaterialCandidate | null>(null)
+  const [approvingCandidate, setApprovingCandidate] = useState(false)
+  const [candidateNeedsConfirm, setCandidateNeedsConfirm] = useState(false)
   const [message, setMessage] = useState<string | null>(initialMessage)
   const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
@@ -315,6 +326,82 @@ export function ReceiptReviewClient({
     }
   }
 
+  async function createMaterialCandidates(itemIds?: string[]) {
+    if (isPosted || creatingCandidates) return
+    setCreatingCandidates(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/material-candidates/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(itemIds?.length ? { itemIds } : {}),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'สร้าง Draft วัสดุไม่สำเร็จ')
+        return
+      }
+      setItems(json.data.items ?? [])
+      setMessage(`สร้าง Draft วัสดุแล้ว ${json.data.created ?? 0} รายการ, ข้าม ${json.data.skipped ?? 0} รายการ`)
+    } finally {
+      setCreatingCandidates(false)
+    }
+  }
+
+  async function saveCandidateDraft(nextDraft: ReceiptMaterialCandidate) {
+    setApprovingCandidate(true)
+    setCandidateNeedsConfirm(false)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/material-candidates/${nextDraft.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toCandidatePayload(nextDraft)),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'บันทึก Draft วัสดุไม่สำเร็จ')
+        return
+      }
+      setCandidateDraft(json.data)
+      setItems((current) => current.map((item) => (
+        item.id === json.data.receipt_item_id ? { ...item, material_candidate: json.data, material_candidate_id: json.data.id } : item
+      )))
+      setMessage('บันทึก Draft วัสดุแล้ว')
+    } finally {
+      setApprovingCandidate(false)
+    }
+  }
+
+  async function approveCandidateDraft(nextDraft: ReceiptMaterialCandidate, confirmDuplicate = false) {
+    setApprovingCandidate(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/material-candidates/${nextDraft.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...toCandidatePayload(nextDraft), confirmDuplicate }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        if (json.code === 'DUPLICATE' && json.details?.requiresConfirmation) {
+          setCandidateDraft((current) => current ? { ...current, duplicate_warning: json.details.duplicateWarning } : current)
+          setCandidateNeedsConfirm(true)
+          setWarning(json.error ?? 'พบวัสดุคล้ายกัน กรุณาตรวจสอบก่อนสร้างใหม่')
+          return
+        }
+        setError(json.error ?? 'อนุมัติและสร้างวัสดุไม่สำเร็จ')
+        return
+      }
+      setItems(json.data.items ?? [])
+      setCandidateDraft(null)
+      setCandidateNeedsConfirm(false)
+      setMessage('สร้างวัสดุใหม่แล้ว ระบบเชื่อมรายการสลิปกับวัสดุนี้ให้แล้ว')
+    } finally {
+      setApprovingCandidate(false)
+    }
+  }
+
   async function postReceipt() {
     if (postBlockers.length > 0 || isPosted) return
     if (!confirm('บันทึกราคาเข้าระบบ Material Master จากสลิปนี้?')) return
@@ -527,6 +614,11 @@ export function ReceiptReviewClient({
               </button>
             )}
             {!isPosted && (
+              <button disabled={creatingCandidates || matchingMaterials || fillingUoms || posting || postingReady} type="button" onClick={() => createMaterialCandidates()} className="btn-secondary">
+                {creatingCandidates ? 'กำลังสร้าง Draft วัสดุ...' : 'สร้าง Draft วัสดุจากรายการที่ไม่พบ'}
+              </button>
+            )}
+            {!isPosted && (
               <button disabled={fillingUoms || matchingMaterials || posting || postingReady} type="button" onClick={fillMissingUoms} className="btn-secondary">
                 {fillingUoms ? 'กำลังเติมหน่วย...' : 'เติมหน่วยอัตโนมัติ'}
               </button>
@@ -624,13 +716,21 @@ export function ReceiptReviewClient({
                     <MaterialPicker
                       item={item}
                       disabled={rowLocked}
+                      onReviewCandidate={(candidate) => {
+                        setCandidateDraft(candidate)
+                        setCandidateNeedsConfirm(false)
+                      }}
+                      onCreateCandidate={() => createMaterialCandidates([item.id])}
                       onSelect={(candidate) => saveItem(item, {
                         ...buildMaterialSelectionPatch(item, candidate),
                         material_id: candidate.id,
+                        material_candidate_id: null,
+                        material_resolution_status: 'matched_existing',
                         match_confidence: 100,
                         action: !item.action || item.action === 'needs_review' || item.action === 'create_material_needed' ? 'update_price' : item.action,
                       } as any)}
                       onCreateMaterialNeeded={() => saveItem(item, { action: 'create_material_needed' } as any)}
+                      onIgnore={() => saveItem(item, { action: 'ignore' } as any)}
                     />
                   </td>
                   <td>
@@ -668,8 +768,167 @@ export function ReceiptReviewClient({
         </div>
       </section>
 
+      {candidateDraft && (
+        <CandidateReviewModal
+          candidate={candidateDraft}
+          categories={categories}
+          materialTypes={materialTypes}
+          uoms={uoms}
+          saving={approvingCandidate}
+          needsConfirm={candidateNeedsConfirm}
+          onChange={(nextDraft) => {
+            setCandidateDraft(nextDraft)
+            setCandidateNeedsConfirm(false)
+          }}
+          onSave={() => saveCandidateDraft(candidateDraft)}
+          onApprove={(confirmDuplicate) => approveCandidateDraft(candidateDraft, confirmDuplicate)}
+          onClose={() => {
+            if (!approvingCandidate) {
+              setCandidateDraft(null)
+              setCandidateNeedsConfirm(false)
+            }
+          }}
+        />
+      )}
+
       <div className="flex justify-between">
         <Link href="/receipts" className="btn-secondary">กลับรายการสลิป</Link>
+      </div>
+    </div>
+  )
+}
+
+function CandidateReviewModal({
+  candidate,
+  categories,
+  materialTypes,
+  uoms,
+  saving,
+  needsConfirm,
+  onChange,
+  onSave,
+  onApprove,
+  onClose,
+}: {
+  candidate: ReceiptMaterialCandidate
+  categories: ReceiptCategory[]
+  materialTypes: ReceiptMaterialType[]
+  uoms: ReceiptUom[]
+  saving: boolean
+  needsConfirm: boolean
+  onChange: (candidate: ReceiptMaterialCandidate) => void
+  onSave: () => void
+  onApprove: (confirmDuplicate: boolean) => void
+  onClose: () => void
+}) {
+  const availableTypes = materialTypes.filter((type) => !candidate.proposed_category_id || type.category_id === candidate.proposed_category_id)
+  const duplicateMatches = candidate.duplicate_warning?.matches ?? []
+
+  function set<K extends keyof ReceiptMaterialCandidate>(key: K, value: ReceiptMaterialCandidate[K]) {
+    onChange({ ...candidate, [key]: value })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/40 p-4">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-xl">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-xl font-bold text-blue-950">ตรวจ Draft วัสดุ</h3>
+            <p className="mt-1 text-sm text-slate-500">ระบบจะสร้างรหัสวัสดุให้อัตโนมัติหลังอนุมัติ และยังไม่บันทึกราคาในขั้นตอนนี้</p>
+          </div>
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
+            ปิด
+          </button>
+        </div>
+
+        {duplicateMatches.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <p className="font-bold">พบวัสดุคล้ายกัน กรุณาตรวจสอบก่อนสร้างใหม่</p>
+            <div className="mt-2 space-y-1">
+              {duplicateMatches.map((match, index) => (
+                <p key={`${match.material_id ?? index}`} className="text-xs">
+                  {match.material_code || match.material_id || '-'} / {match.mat_name_th || '-'} {match.spec ? ` / ${match.spec}` : ''}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="ชื่อวัสดุ (ไทย)">
+            <input value={candidate.proposed_mat_name_th ?? ''} onChange={(e) => set('proposed_mat_name_th', e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="ชื่อวัสดุ (อังกฤษ)">
+            <input value={candidate.proposed_mat_name_en ?? ''} onChange={(e) => set('proposed_mat_name_en', e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="หมวดหมู่">
+            <select
+              value={candidate.proposed_category_id ?? ''}
+              onChange={(e) => onChange({ ...candidate, proposed_category_id: e.target.value || null, proposed_material_type_id: null })}
+              className={inputClass}
+            >
+              <option value="">- เลือกหมวดหมู่ -</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  [{category.code_prefix || category.cat_code}] {category.cat_name_th}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="ชนิดวัสดุ">
+            <select value={candidate.proposed_material_type_id ?? ''} onChange={(e) => set('proposed_material_type_id', e.target.value || null)} className={inputClass}>
+              <option value="">- ให้ระบบเดาจากชื่อ -</option>
+              {availableTypes.map((type) => (
+                <option key={type.id} value={type.id}>
+                  [{type.code_prefix}] {type.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Spec key ของรหัส">
+            <input value={candidate.proposed_code_spec_key ?? ''} onChange={(e) => set('proposed_code_spec_key', e.target.value.toUpperCase())} className={inputClass} />
+          </Field>
+          <Field label="สเปก">
+            <input value={candidate.proposed_spec ?? ''} onChange={(e) => set('proposed_spec', e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="แบรนด์">
+            <input value={candidate.proposed_brand ?? ''} onChange={(e) => set('proposed_brand', e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="รุ่น">
+            <input value={candidate.proposed_model ?? ''} onChange={(e) => set('proposed_model', e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="หน่วยนับ">
+            <select value={candidate.proposed_uom_id ?? ''} onChange={(e) => {
+              const selected = uoms.find((uom) => uom.id === e.target.value)
+              onChange({ ...candidate, proposed_uom_id: e.target.value || null, proposed_uom_raw: selected?.uom_code ?? candidate.proposed_uom_raw })
+            }} className={inputClass}>
+              <option value="">- เลือกหน่วย -</option>
+              {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code} - {uom.uom_name_th}</option>)}
+            </select>
+          </Field>
+          <Field label="ราคาจากสลิป">
+            <input disabled value={candidate.proposed_unit_price ?? ''} className={inputClass} />
+          </Field>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <p className="font-bold text-slate-800">Alias จากสลิป</p>
+          <p className="mt-1">{(candidate.proposed_aliases ?? []).join(', ') || '-'}</p>
+        </div>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onSave} disabled={saving} className="btn-secondary">
+            {saving ? 'กำลังบันทึก...' : 'บันทึก Draft'}
+          </button>
+          <button type="button" onClick={() => onApprove(false)} disabled={saving} className="btn-primary">
+            {saving ? 'กำลังสร้างวัสดุ...' : 'อนุมัติและสร้างวัสดุ'}
+          </button>
+          {needsConfirm && (
+            <button type="button" onClick={() => onApprove(true)} disabled={saving} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50">
+              ยืนยันสร้างใหม่แม้พบวัสดุคล้ายกัน
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -678,13 +937,19 @@ export function ReceiptReviewClient({
 function MaterialPicker({
   item,
   disabled,
+  onReviewCandidate,
+  onCreateCandidate,
   onSelect,
   onCreateMaterialNeeded,
+  onIgnore,
 }: {
   item: PurchaseReceiptItem
   disabled?: boolean
+  onReviewCandidate: (candidate: ReceiptMaterialCandidate) => void
+  onCreateCandidate: () => void
   onSelect: (candidate: MaterialCandidate) => void
   onCreateMaterialNeeded: () => void
+  onIgnore: () => void
 }) {
   const [query, setQuery] = useState(item.item_name_raw ?? '')
   const [loading, setLoading] = useState(false)
@@ -692,6 +957,7 @@ function MaterialPicker({
   const [candidates, setCandidates] = useState<MaterialCandidate[]>([])
   const selected = item.material
   const suggested = item.suggested_material
+  const materialCandidate = item.material_candidate
   const matchCandidates = (item.match_candidates?.length
     ? item.match_candidates
     : suggested
@@ -735,6 +1001,34 @@ function MaterialPicker({
             )}
           </div>
         </div>
+      ) : materialCandidate && materialCandidate.status !== 'rejected' ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[10px] font-bold text-blue-700">
+              {materialCandidate.status === 'created' ? 'สร้างวัสดุใหม่แล้ว' : 'รอสร้างวัสดุใหม่'}
+            </span>
+            {materialCandidate.proposed_code_spec_key && (
+              <span className="text-[11px] font-semibold text-blue-700">{materialCandidate.proposed_code_spec_key}</span>
+            )}
+          </div>
+          <p className="truncate text-xs font-bold text-blue-950">{materialCandidate.proposed_mat_name_th || item.item_name_raw}</p>
+          {materialCandidate.duplicate_warning?.matches?.length ? (
+            <p className="mt-1 text-[11px] font-semibold text-amber-700">พบวัสดุคล้ายกัน กรุณาตรวจสอบก่อนสร้างใหม่</p>
+          ) : null}
+          {!disabled && materialCandidate.status !== 'created' && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" onClick={() => onReviewCandidate(materialCandidate)} className="rounded-lg border border-blue-300 bg-white px-2 py-1 text-[11px] font-bold text-blue-800 hover:bg-blue-100">
+                ตรวจ Draft วัสดุ
+              </button>
+              <button type="button" onClick={() => setSearchOpen(true)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-50">
+                ใช้วัสดุเดิมแทน
+              </button>
+              <button type="button" onClick={onIgnore} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-500 hover:bg-slate-50">
+                ไม่บันทึกรายการนี้
+              </button>
+            </div>
+          )}
+        </div>
       ) : matchCandidates.length > 0 ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
           <div className="mb-2 flex items-center justify-between gap-2">
@@ -770,6 +1064,11 @@ function MaterialPicker({
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
           <p className="text-xs font-bold text-slate-500">ไม่พบวัสดุในระบบ</p>
           <p className="mt-1 text-[11px] text-slate-400">ค้นหาเอง หรือสร้างวัสดุใหม่ภายหลัง</p>
+          {!disabled && (
+            <button type="button" onClick={onCreateCandidate} className="mt-2 rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-bold text-blue-800 hover:bg-blue-50">
+              สร้าง Draft วัสดุ
+            </button>
+          )}
         </div>
       )}
       {!disabled && (
@@ -923,10 +1222,28 @@ function toItemPayload(item: PurchaseReceiptItem) {
     discount_amount: item.discount_amount,
     suggested_material_id: item.suggested_material_id,
     material_id: item.material_id,
+    material_candidate_id: item.material_candidate_id,
+    material_resolution_status: item.material_resolution_status,
     match_confidence: item.match_confidence,
     match_reason: item.match_reason,
     action,
     review_status: getClientReviewStatus(item),
+  }
+}
+
+function toCandidatePayload(candidate: ReceiptMaterialCandidate) {
+  return {
+    proposed_mat_name_th: candidate.proposed_mat_name_th,
+    proposed_mat_name_en: candidate.proposed_mat_name_en,
+    proposed_category_id: candidate.proposed_category_id,
+    proposed_material_type_id: candidate.proposed_material_type_id,
+    proposed_code_spec_key: candidate.proposed_code_spec_key,
+    proposed_spec: candidate.proposed_spec,
+    proposed_brand: candidate.proposed_brand,
+    proposed_model: candidate.proposed_model,
+    proposed_uom_id: candidate.proposed_uom_id,
+    proposed_uom_raw: candidate.proposed_uom_raw,
+    proposed_aliases: candidate.proposed_aliases ?? [],
   }
 }
 

@@ -7,10 +7,10 @@ import {
   deleteReceiptDraft,
   getReceiptById,
   isReceiptSchemaMissing,
-  listReceiptItems,
   updateReceiptDraft,
   updateReceiptDraftSchema,
 } from '@/lib/server/receipt-import'
+import { listReceiptReviewItems } from '@/lib/server/receipt-material-candidates'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -38,7 +38,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   try {
     const receipt = await getReceiptById(supabase, id)
     if (!receipt) return apiError('NOT_FOUND', 'Receipt not found', 404)
-    const items = await listReceiptItems(supabase, id)
+    const items = await listReceiptReviewItems(supabase, id, receipt.supplier_id)
     return NextResponse.json({ data: { receipt, items } })
   } catch (error) {
     return receiptError(error)

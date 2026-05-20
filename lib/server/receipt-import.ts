@@ -57,6 +57,8 @@ export const createReceiptItemSchema = z.object({
   discount_amount: optionalNumber,
   suggested_material_id: optionalUuid,
   material_id: optionalUuid,
+  material_candidate_id: optionalUuid,
+  material_resolution_status: optionalString,
   match_confidence: optionalNumber,
   match_reason: optionalString,
   review_status: receiptItemReviewStatusSchema.optional(),
@@ -127,6 +129,8 @@ export const RECEIPT_ITEM_SELECT = `
   discount_amount,
   suggested_material_id,
   material_id,
+  material_candidate_id,
+  material_resolution_status,
   match_confidence,
   match_reason,
   review_status,
@@ -235,6 +239,8 @@ function normalizeReceiptItemPayload(input: CreateReceiptItemInput | UpdateRecei
     discount_amount: input.discount_amount,
     suggested_material_id: input.suggested_material_id ?? null,
     material_id: input.material_id ?? null,
+    material_candidate_id: input.material_candidate_id ?? null,
+    material_resolution_status: normalizeNullableText(input.material_resolution_status),
     match_confidence: input.match_confidence,
     match_reason: normalizeNullableText(input.match_reason),
     action,
@@ -258,6 +264,9 @@ export function isReceiptSchemaMissing(error: any) {
     text.includes('file_storage_path') ||
     text.includes('ai_raw_text') ||
     text.includes('ai_raw_json') ||
+    text.includes('receipt_material_candidates') ||
+    text.includes('material_candidate_id') ||
+    text.includes('material_resolution_status') ||
     text.includes('fn_post_purchase_receipt_ready_items') ||
     text.includes('fn_post_purchase_receipt_to_price_history')
   )

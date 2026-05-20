@@ -2,24 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOwnerApi } from '@/lib/auth/owner'
 import { createClient } from '@/lib/supabase/server'
 import { createMaterialSchema } from '@/lib/validations/material'
-import { writeAuditLog } from '@/lib/server-utils'
 import { getPaginationRange } from '@/lib/utils'
-import { buildNormalizedMaterialName } from '@/lib/material-master'
 import { normalizeSearchTerm } from '@/lib/supabase/filters'
 import { resolveMaterialSearchMatches, sortRowsBySearchRank } from '@/lib/server/material-search'
-import { databaseError, duplicateError, validationError } from '@/lib/api/responses'
-import { inferSpecKeyFromMaterialText, sanitizeSpecKey } from '@/lib/material-code'
-import { resolveMaterialTypeForCode } from '@/lib/server/material-type-default'
-import { generateMaterialCodeForCreate } from '@/lib/server/material-code-generator'
+import { apiError, databaseError, validationError } from '@/lib/api/responses'
+import { createMaterialMasterRecord, MaterialCreateError } from '@/lib/server/material-create'
 
 type MaterialSortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
 
 const MATERIAL_SORT_KEYS: MaterialSortKey[] = ['material_code', 'material_id', 'mat_name_th', 'brand', 'status', 'updated_at']
-const MATERIAL_WRITE_SELECT = `
-  id, material_id, material_code, cat_id, category_id, material_type_id, code_spec_key,
-  mat_name_th, mat_name_en, normalized_name, spec, brand, model, base_uom, base_uom_id,
-  status, note, code_locked, code_generated_at, code_rule_version, created_at, updated_at
-`
 
 // GET /api/materials?search=&cat_id=&status=&page=1&limit=20&sort_by=updated_at&sort_dir=desc
 export async function GET(req: NextRequest) {
@@ -129,187 +120,13 @@ export async function POST(req: NextRequest) {
     return validationError(parsed.error.flatten())
   }
 
-  const input = parsed.data
-  const materialTypeId = String(input.material_type_id ?? '').trim()
-  const submittedSpecKey = input.code_spec_key ? sanitizeSpecKey(input.code_spec_key) : ''
-  const inferredSpecKey = inferSpecKeyFromMaterialText({
-    spec: input.spec,
-    matNameEn: input.mat_name_en,
-    matNameTh: input.mat_name_th,
-    brand: input.brand,
-    model: input.model,
-  })
-  const codeSpecKey = submittedSpecKey && submittedSpecKey !== 'GEN'
-    ? submittedSpecKey
-    : inferredSpecKey
-
-  // Duplicate check: same name + spec + cat
-  const { data: existing } = await supabase
-    .from('mat_master')
-    .select('material_id')
-    .eq('is_deleted', false)
-    .eq('cat_id', input.cat_id)
-    .eq('mat_name_th', input.mat_name_th)
-    .eq('spec', input.spec ?? '')
-    .limit(1)
-
-  if (existing && existing.length > 0) {
-    return NextResponse.json(
-      { error: `วัสดุชื่อนี้มีอยู่แล้ว (${existing[0].material_id})` },
-      { status: 409 },
-    )
-  }
-
-  // Get cat_code for ID generation
-  const { data: cat } = await supabase
-    .from('mat_category')
-    .select('id, cat_code, code_prefix')
-    .eq('cat_id', input.cat_id)
-    .single()
-
-  if (!cat) {
-    return NextResponse.json({ error: 'ไม่พบหมวดหมู่' }, { status: 400 })
-  }
-
-  const resolvedType = await resolveMaterialTypeForCode(supabase, {
-    categoryId: cat.id,
-    materialTypeId,
-    createDefault: false,
-    matNameEn: input.mat_name_en,
-    matNameTh: input.mat_name_th,
-    spec: input.spec,
-    brand: input.brand,
-    model: input.model,
-  })
-
-  if (resolvedType.error) {
-    if (resolvedType.error.kind === 'validation') {
-      return validationError({ material_type_id: [resolvedType.error.message] })
+  try {
+    const data = await createMaterialMasterRecord(supabase, parsed.data, owner.id)
+    return NextResponse.json({ data }, { status: 201 })
+  } catch (error) {
+    if (error instanceof MaterialCreateError) {
+      return apiError(error.code as any, error.message, error.status, error.details)
     }
-    return databaseError('Could not validate material type', { message: resolvedType.error.message })
+    return databaseError('Could not create material', { message: (error as Error).message })
   }
-
-  const materialType = resolvedType.materialType
-
-  if (!materialType) {
-    return databaseError('Could not resolve material type fallback')
-  }
-
-  const { data: uom } = await supabase
-    .from('mat_uom')
-    .select('id, uom_code')
-    .eq('uom_code', input.base_uom)
-    .eq('is_deleted', false)
-    .single()
-
-  if (!uom) {
-    return NextResponse.json({ error: 'ไม่พบหน่วยนับ' }, { status: 400 })
-  }
-
-  const generatedCode = await generateMaterialCodeForCreate(supabase, {
-    categoryPrefix: cat.code_prefix ?? cat.cat_code,
-    typePrefix: materialType.code_prefix,
-    specKey: codeSpecKey,
-  })
-
-  if (!generatedCode.data) {
-    return databaseError('Could not generate material code. Run the Material Code Standard v1 SQL migration first.', {
-      message: generatedCode.error ?? undefined,
-    })
-  }
-
-  let generatedCodeData = generatedCode.data
-  let materialCode = generatedCodeData.code
-
-  for (let attempt = 0; attempt < 25; attempt += 1) {
-    const { data: codeExisting, error: codeCheckError } = await supabase
-      .from('mat_master')
-      .select('material_id, material_code')
-      .eq('material_code', materialCode)
-      .limit(1)
-
-    if (codeCheckError) {
-      return databaseError('Could not validate material code uniqueness', { message: codeCheckError.message })
-    }
-
-    if (!codeExisting || codeExisting.length === 0) {
-      break
-    }
-
-    const retryCode = await generateMaterialCodeForCreate(supabase, {
-      categoryPrefix: generatedCodeData.categoryPrefix,
-      typePrefix: generatedCodeData.typePrefix,
-      specKey: generatedCodeData.specKey,
-    })
-
-    if (!retryCode.data) {
-      return databaseError('Could not generate retry material code', { message: retryCode.error ?? undefined })
-    }
-
-    generatedCodeData = retryCode.data
-    materialCode = generatedCodeData.code
-  }
-
-  const { data: duplicateAfterRetry } = await supabase
-    .from('mat_master')
-    .select('material_id')
-    .eq('material_code', materialCode)
-    .limit(1)
-
-  if (duplicateAfterRetry && duplicateAfterRetry.length > 0) {
-    return duplicateError(`Material code "${materialCode}" already exists`)
-  }
-
-  const normalized_name = buildNormalizedMaterialName({
-    ...input,
-    material_code: materialCode,
-  })
-  const material_id = materialCode
-  const { data, error } = await supabase
-    .from('mat_master')
-    .insert({
-      ...input,
-      material_id,
-      material_code: materialCode,
-      normalized_name,
-      category_id: cat.id,
-      base_uom_id: uom.id,
-      material_type_id: materialType.id ?? null,
-      code_spec_key: generatedCodeData.specKey,
-      code_locked: true,
-      code_generated_at: new Date().toISOString(),
-      code_rule_version: 'v1',
-    })
-    .select(MATERIAL_WRITE_SELECT)
-    .single()
-
-  if (error) {
-    if (error.code === '23505') {
-      return duplicateError(`Material code "${materialCode}" already exists`)
-    }
-    return databaseError('Could not create material', { message: error.message })
-  }
-
-  const { error: historyError } = await supabase
-    .from('material_code_history')
-    .insert({
-      material_id,
-      old_code: null,
-      new_code: materialCode,
-      change_reason: 'Material code generated on material creation',
-      changed_by: owner.id,
-    })
-
-  if (historyError) {
-    console.error('Failed to write material code creation history', historyError)
-  }
-
-  await writeAuditLog({
-    entityType: 'mat_master',
-    entityKey: material_id,
-    action: 'CREATE',
-    payload: data,
-  })
-
-  return NextResponse.json({ data }, { status: 201 })
 }

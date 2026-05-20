@@ -7,10 +7,9 @@ import {
   ReceiptImportError,
   getReceiptById,
   isReceiptSchemaMissing,
-  listReceiptItems,
 } from '@/lib/server/receipt-import'
-import { enrichReceiptItemsWithMaterialCandidates } from '@/lib/server/receipt-material-match'
-import type { PurchaseReceiptItem, ReceiptSupplier, ReceiptUom } from '@/types/receipt'
+import { listReceiptReviewItems } from '@/lib/server/receipt-material-candidates'
+import type { PurchaseReceiptItem, ReceiptSupplier, ReceiptUom, ReceiptCategory, ReceiptMaterialType } from '@/types/receipt'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -25,9 +24,8 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
   const supabase = await createClient()
 
   try {
-    const [receipt, items, suppliersRes, uomsRes] = await Promise.all([
+    const [receipt, suppliersRes, uomsRes, categoriesRes, materialTypesRes] = await Promise.all([
       getReceiptById(supabase, id),
-      listReceiptItems(supabase, id),
       supabase
         .from('supplier')
         .select('id, supplier_id, supplier_code, supplier_name_th')
@@ -38,12 +36,24 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
         .select('id, uom_code, uom_name_th')
         .eq('is_deleted', false)
         .order('uom_code'),
+      supabase
+        .from('mat_category')
+        .select('id, cat_id, cat_code, cat_name_th, code_prefix')
+        .eq('is_deleted', false)
+        .order('sort_order'),
+      supabase
+        .from('material_types')
+        .select('id, category_id, name, code_prefix, is_active')
+        .eq('is_active', true)
+        .order('code_prefix'),
     ])
 
     if (!receipt) notFound()
     if (suppliersRes.error) throw suppliersRes.error
     if (uomsRes.error) throw uomsRes.error
-    const enrichedItems = await enrichReceiptItemsWithMaterialCandidates(supabase, items, receipt.supplier_id)
+    if (categoriesRes.error) throw categoriesRes.error
+    if (materialTypesRes.error) throw materialTypesRes.error
+    const enrichedItems = await listReceiptReviewItems(supabase, id, receipt.supplier_id)
 
     return (
       <div className="flex min-h-full flex-col bg-slate-50">
@@ -75,6 +85,8 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
             initialItems={enrichedItems as PurchaseReceiptItem[]}
             suppliers={(suppliersRes.data ?? []) as ReceiptSupplier[]}
             uoms={(uomsRes.data ?? []) as ReceiptUom[]}
+            categories={(categoriesRes.data ?? []) as ReceiptCategory[]}
+            materialTypes={(materialTypesRes.data ?? []) as ReceiptMaterialType[]}
             initialMessage={getInitialReceiptMessage(search)}
             initialWarning={getInitialReceiptWarning(search)}
           />
