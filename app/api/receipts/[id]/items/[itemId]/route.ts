@@ -9,6 +9,10 @@ import {
   updateReceiptItem,
   updateReceiptItemSchema,
 } from '@/lib/server/receipt-import'
+import {
+  generateReceiptMaterialCandidates,
+  listReceiptReviewItems,
+} from '@/lib/server/receipt-material-candidates'
 
 type Ctx = { params: Promise<{ id: string; itemId: string }> }
 
@@ -37,7 +41,16 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   try {
     const supabase = await createClient()
-    const data = await updateReceiptItem(supabase, id, itemId, parsed.data, owner.id)
+    const updated = await updateReceiptItem(supabase, id, itemId, parsed.data, owner.id)
+
+    if (updated.action === 'create_material_needed' && !updated.material_id && !updated.material_candidate_id) {
+      const generated = await generateReceiptMaterialCandidates(supabase, id, owner.id, { itemIds: [itemId] })
+      const generatedItem = generated.items.find((item: any) => item.id === itemId)
+      return NextResponse.json({ data: generatedItem ?? updated })
+    }
+
+    const items = await listReceiptReviewItems(supabase, id)
+    const data = items.find((item: any) => item.id === itemId) ?? updated
     return NextResponse.json({ data })
   } catch (error) {
     return receiptError(error)

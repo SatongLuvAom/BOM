@@ -210,7 +210,7 @@ export function ReceiptReviewClient({
       setError(json.error ?? 'บันทึกรายการไม่สำเร็จ')
       return
     }
-    setItems((current) => current.map((row) => row.id === item.id ? json.data : row))
+    setItems((current) => current.map((row) => row.id === item.id ? mergeReceiptItem(row, json.data) : row))
     setMessage('บันทึกรายการแล้ว')
   }
 
@@ -729,7 +729,10 @@ export function ReceiptReviewClient({
                         match_confidence: 100,
                         action: !item.action || item.action === 'needs_review' || item.action === 'create_material_needed' ? 'update_price' : item.action,
                       } as any)}
-                      onCreateMaterialNeeded={() => saveItem(item, { action: 'create_material_needed' } as any)}
+                      onCreateMaterialNeeded={() => saveItem(item, {
+                        action: 'create_material_needed',
+                        material_resolution_status: 'create_material_needed',
+                      } as any)}
                       onIgnore={() => saveItem(item, { action: 'ignore' } as any)}
                     />
                   </td>
@@ -1228,6 +1231,20 @@ function toItemPayload(item: PurchaseReceiptItem) {
     match_reason: item.match_reason,
     action,
     review_status: getClientReviewStatus(item),
+  }
+}
+
+function mergeReceiptItem(existing: PurchaseReceiptItem, next: PurchaseReceiptItem): PurchaseReceiptItem {
+  return {
+    ...existing,
+    ...next,
+    material: next.material_id ? (next.material ?? existing.material ?? null) : null,
+    suggested_material: next.suggested_material_id ? (next.suggested_material ?? existing.suggested_material ?? null) : null,
+    uom: next.uom_id ? (next.uom ?? existing.uom ?? null) : null,
+    material_candidate: next.material_candidate_id
+      ? (next.material_candidate ?? existing.material_candidate ?? null)
+      : null,
+    match_candidates: next.match_candidates ?? existing.match_candidates ?? null,
   }
 }
 
