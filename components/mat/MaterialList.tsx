@@ -200,8 +200,8 @@ export function MaterialList({
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(320px,1.6fr)_repeat(5,minmax(150px,1fr))_auto]">
-          <div className="xl:col-span-2">
+        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
+          <div className="min-w-[280px] flex-1">
             <SearchInput
               placeholder="ค้นหา รหัสวัสดุ, ชื่อวัสดุ, Brand, SPEC, Supplier..."
               searchOn="enter"
@@ -209,6 +209,35 @@ export function MaterialList({
             />
           </div>
 
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center 2xl:justify-end">
+            <div className="flex min-w-[260px] items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
+              <span className="shrink-0 text-xs font-bold text-slate-400">เรียงลำดับ</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="min-w-0 flex-1 rounded-md border-0 bg-transparent py-1 pl-1 pr-7 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-0"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>{option.label}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={toggleSortDir}
+                className="rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-100"
+                title="สลับลำดับ"
+              >
+                {sortDir === 'asc' ? 'ASC' : 'DESC'}
+              </button>
+            </div>
+
+            <a href={getExportUrl()} download className="btn-secondary whitespace-nowrap">
+              ส่งออก CSV
+            </a>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <select value={searchParams.get('cat_id') ?? ''} onChange={(e) => setParam('cat_id', e.target.value)} className="ops-select">
             <option value="">ทุกหมวดหมู่</option>
             {categories.map((c) => (
@@ -242,33 +271,10 @@ export function MaterialList({
             ))}
           </select>
 
-          <a href={getExportUrl()} download className="btn-secondary whitespace-nowrap">
-            Export CSV
-          </a>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+        <div className="mt-3 border-t border-slate-100 pt-3">
           <FilterChips categories={categories} suppliers={suppliers} />
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
-            <span className="text-xs font-bold text-slate-400">เรียงลำดับ</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="rounded-md border-0 bg-transparent py-1 pl-1 pr-7 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-0"
-            >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.key} value={option.key}>{option.label}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={toggleSortDir}
-              className="rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-100"
-              title="สลับลำดับ"
-            >
-              {sortDir === 'asc' ? 'ASC' : 'DESC'}
-            </button>
-          </div>
         </div>
       </section>
 

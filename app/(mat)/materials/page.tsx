@@ -274,8 +274,8 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
 
   return (
     <div className="flex min-h-full flex-col bg-slate-50">
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-6 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+        <div className="flex w-full items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
             <span>คลังวัสดุ</span>
             <span className="text-slate-300">/</span>
@@ -287,8 +287,8 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="mx-auto flex w-full max-w-[1500px] flex-1 flex-col gap-5 px-6 py-5">
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="flex w-full flex-1 flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
           <StatCard label="วัสดุทั้งหมด" value={total} hint={filteredText} tone="blue" />
           <StatCard label="ยังไม่มีราคา" value={pageMissingPrice} hint="นับจากรายการในหน้านี้" tone="orange" />
           <StatCard label="ราคาต้องอัปเดต" value={pageStalePrice} hint="ราคาล่าสุดเกิน 30 วันในหน้านี้" tone="amber" />
