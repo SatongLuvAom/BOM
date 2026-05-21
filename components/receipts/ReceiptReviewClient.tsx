@@ -98,7 +98,8 @@ export function ReceiptReviewClient({
   const isPosted = receipt.status === 'posted'
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
   const hasAiExtraction = Boolean(receipt.ai_raw_json || receipt.ai_raw_text)
-  const postBlockers = useMemo(() => buildPostBlockers(receipt, items), [receipt, items])
+  const effectiveSupplierId = header.supplier_id || receipt.supplier_id || null
+  const postBlockers = useMemo(() => buildPostBlockers({ ...receipt, supplier_id: effectiveSupplierId }, items), [effectiveSupplierId, receipt, items])
   const readiness = useMemo(() => buildReadinessSummary(items, isPosted), [items, isPosted])
 
   useEffect(() => {
@@ -157,22 +158,39 @@ export function ReceiptReviewClient({
     setSavingHeader(true)
     clearMessages()
     try {
-      const res = await fetch(`/api/receipts/${receipt.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(toHeaderPayload(header)),
-      })
-      const json = await res.json()
-      if (!res.ok) {
-        setError(json.error ?? 'บันทึก Draft ไม่สำเร็จ')
-        return
-      }
-      setReceipt(json.data)
-      setHeader(toHeaderForm(json.data))
+      await saveHeaderDraft()
       setMessage('บันทึก Draft แล้ว')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'บันทึก Draft ไม่สำเร็จ')
     } finally {
       setSavingHeader(false)
     }
+  }
+
+  async function saveHeaderDraft() {
+    const res = await fetch(`/api/receipts/${receipt.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(toHeaderPayload(header)),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      throw new Error(json.error ?? 'บันทึก Draft ไม่สำเร็จ')
+    }
+    if (!json.data) {
+      throw new Error('บันทึก Draft แล้วแต่ระบบไม่ส่งข้อมูลกลับ กรุณารีเฟรชหน้าแล้วลองใหม่')
+    }
+    setReceipt(json.data)
+    setHeader(toHeaderForm(json.data))
+    return json.data as PurchaseReceipt
+  }
+
+  async function ensureHeaderSavedBeforePosting() {
+    if (!header.supplier_id) {
+      throw new Error('ต้องเลือกซัพพลายเออร์ก่อนบันทึกราคา')
+    }
+
+    return saveHeaderDraft()
   }
 
   async function addItem() {
@@ -479,6 +497,7 @@ export function ReceiptReviewClient({
     setPosting(true)
     clearMessages()
     try {
+      await ensureHeaderSavedBeforePosting()
       const res = await fetch(`/api/receipts/${receipt.id}/post`, { method: 'POST' })
       const json = await res.json()
       if (!res.ok) {
@@ -490,6 +509,8 @@ export function ReceiptReviewClient({
       const postedCount = json.data.result?.posted_count ?? json.data.result?.inserted_prices ?? 0
       const skippedCount = json.data.result?.skipped_count ?? 0
       setMessage(`บันทึกราคาเข้าระบบแล้ว ${postedCount} รายการ${skippedCount > 0 ? `, ข้าม ${skippedCount} รายการ เพราะข้อมูลยังไม่ครบ` : ''}`)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'บันทึกราคาเข้าระบบไม่สำเร็จ')
     } finally {
       setPosting(false)
     }
@@ -501,6 +522,7 @@ export function ReceiptReviewClient({
     setPostingReady(true)
     clearMessages()
     try {
+      await ensureHeaderSavedBeforePosting()
       const res = await fetch(`/api/receipts/${receipt.id}/post-ready-items`, { method: 'POST' })
       const json = await res.json()
       if (!res.ok) {
@@ -516,6 +538,8 @@ export function ReceiptReviewClient({
       const skippedReasons = Array.isArray(result.skipped_reasons) ? result.skipped_reasons : []
       const firstReason = skippedReasons[0]?.reason ? ` (${skippedReasons[0].reason})` : ''
       setMessage(`บันทึกสำเร็จ ${postedCount} รายการ${skippedCount > 0 ? `, ข้าม ${skippedCount} รายการ เพราะข้อมูลยังไม่ครบ${firstReason}` : ''}`)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'บันทึกราคาที่พร้อมไม่สำเร็จ')
     } finally {
       setPostingReady(false)
     }
@@ -700,11 +724,11 @@ export function ReceiptReviewClient({
               </button>
             )}
             {!isPosted && (
-              <button disabled={postingReady || posting || matchingMaterials || repairingReceipt || readiness.ready === 0} type="button" onClick={postReadyItems} className="btn-primary">
+              <button disabled={postingReady || posting || matchingMaterials || repairingReceipt || savingHeader || readiness.ready === 0 || !effectiveSupplierId} type="button" onClick={postReadyItems} className="btn-primary">
                 {postingReady ? 'กำลังบันทึก...' : `บันทึกราคาที่พร้อมทั้งหมด (${readiness.ready})`}
               </button>
             )}
-            <button disabled={isPosted || posting || postingReady || matchingMaterials || repairingReceipt || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
+            <button disabled={isPosted || posting || postingReady || matchingMaterials || repairingReceipt || savingHeader || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
               {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
             </button>
           </div>
