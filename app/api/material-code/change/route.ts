@@ -34,10 +34,17 @@ export async function POST(req: NextRequest) {
   })
 
   if (error) {
-    return databaseError('Could not change material code', { message: error.message })
+    const message = /function .*fn_apply_material_code_change_v1/i.test(error.message)
+      ? 'ยังไม่ได้ติดตั้ง SQL สำหรับเปลี่ยนรหัสวัสดุ กรุณารัน phase2a10_material_code_standard_v1.sql และ phase2b7_material_code_rpc_rls_fix.sql'
+      : 'เปลี่ยนรหัสวัสดุไม่สำเร็จ'
+    return databaseError(message, { message: error.message })
   }
 
   const result = Array.isArray(data) ? data[0] : data
+
+  if (!result?.new_code) {
+    return databaseError('เปลี่ยนรหัสวัสดุไม่สำเร็จ: ระบบไม่ส่งรหัสใหม่กลับมา')
+  }
 
   await writeAuditLog({
     entityType: 'mat_master',

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Badge } from '@/components/ui/Badge'
 import { getMaterialRouteId } from '@/lib/material-master'
@@ -79,10 +79,27 @@ const SECTIONS: { key: SectionKey; label: string; description: string }[] = [
   { key: 'code-history', label: 'Code history', description: 'Code governance and change history.' },
 ]
 
+function isSectionKey(value: string): value is SectionKey {
+  return SECTIONS.some((section) => section.key === value)
+}
+
 export function MaterialDetailSections({ material }: { material: MatMaster }) {
   const routeId = useMemo(() => getMaterialRouteId(material), [material])
   const [active, setActive] = useState<SectionKey | null>(null)
   const [sections, setSections] = useState<Partial<Record<SectionKey, SectionState>>>({})
+
+  useEffect(() => {
+    function openHashSection() {
+      const key = window.location.hash.replace('#', '')
+      if (isSectionKey(key)) void loadSection(key)
+    }
+
+    openHashSection()
+    window.addEventListener('hashchange', openHashSection)
+    return () => window.removeEventListener('hashchange', openHashSection)
+    // loadSection can safely refetch the same section if the hash is opened again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function loadSection(key: SectionKey) {
     const current = sections[key]
@@ -134,6 +151,7 @@ export function MaterialDetailSections({ material }: { material: MatMaster }) {
             {SECTIONS.map((section) => (
               <button
                 key={section.key}
+                id={section.key}
                 type="button"
                 onClick={() => void loadSection(section.key)}
                 className={`w-full rounded-lg px-3 py-2 text-left transition-colors ${

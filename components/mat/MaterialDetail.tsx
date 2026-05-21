@@ -122,6 +122,15 @@ export function MaterialDetail({
             Edit material
           </Link>
           <Link
+            href={`/materials/${routeId}#code-history`}
+            className="flex w-full items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900 transition-colors hover:bg-amber-100"
+          >
+            เปลี่ยนรหัสวัสดุ
+          </Link>
+          <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs leading-5 text-slate-500">
+            รหัสวัสดุถูกล็อกหลังสร้างเพื่อป้องกัน BOM / BOQ เดิมเสียความสัมพันธ์ หากต้องเปลี่ยน ระบบจะบันทึกเหตุผล เก็บประวัติ และทำ Alias จากรหัสเดิมให้ค้นหาเจอ
+          </p>
+          <Link
             href="/materials"
             className="flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-stone-50"
           >
