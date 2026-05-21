@@ -122,7 +122,7 @@ function isExpired(validUntil: string | null | undefined, now: Date) {
 }
 
 function activeSupplierMaps(material: QualityMaterialInput) {
-  return (material.supplier_maps ?? []).filter((map) => !map.is_deleted)
+  return (material.supplier_maps ?? []).filter((map) => !map.is_deleted && map.is_active !== false)
 }
 
 function activeConversions(material: QualityMaterialInput) {
@@ -223,7 +223,7 @@ export function analyzeMaterialQuality({
     : false
   const expired = hasLatestPrice ? isExpired(latestPrice?.valid_until, now) : false
   const hasSupplier = suppliers.length > 0
-  const hasPreferredSupplier = suppliers.some((map) => map.is_preferred)
+  const hasPreferredSupplier = suppliers.some((map) => map.is_preferred) || suppliers.length === 1
   const hasUom = Boolean(material.base_uom_id || material.base_uom)
   const hasAlias = Boolean(material.aliases?.length)
   const hasSpec = Boolean(isPresent(material.spec) || isPresent(material.brand) || isPresent(material.model))

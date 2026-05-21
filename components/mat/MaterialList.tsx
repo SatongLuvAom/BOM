@@ -64,6 +64,7 @@ function qualityLabelThai(label: string) {
   const normalized = String(label || '').toLowerCase()
   if (normalized.includes('ready')) return 'พร้อมใช้งาน'
   if (normalized.includes('missing price')) return 'ยังไม่มีราคา'
+  if (normalized.includes('missing preferred supplier')) return 'ยังไม่มีซัพพลายเออร์หลัก'
   if (normalized.includes('missing supplier')) return 'ยังไม่มีซัพพลายเออร์'
   if (normalized.includes('missing uom')) return 'ยังไม่มีหน่วย'
   if (normalized.includes('stale')) return 'ราคาเก่าแล้ว'
@@ -349,7 +350,7 @@ export function MaterialList({
                   isPriceStale: Boolean(price?.is_stale),
                   isPriceExpired: false,
                   hasSupplier: Boolean(m.supplier_maps?.length || price?.supplier_name),
-                  hasPreferredSupplier: Boolean(m.supplier_maps?.some((map) => map.is_preferred)),
+                  hasPreferredSupplier: Boolean(m.supplier_maps?.some((map) => map.is_preferred) || m.supplier_maps?.length === 1 || price?.supplier_name),
                   hasAlias: Boolean(m.aliases?.length),
                 })
                 const qualityScore = computedQuality.quality_score ?? computedQuality.score ?? 0

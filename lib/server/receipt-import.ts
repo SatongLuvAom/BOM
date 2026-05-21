@@ -658,6 +658,20 @@ async function ensureReceiptSupplierMappings(supabase: any, receipt: any, items:
 
   if (existingError) throw new ReceiptImportError(existingError.message, 500, 'DATABASE_ERROR', existingError)
 
+  const { data: activeMapRows, error: activeMapError } = await supabase
+    .from('mat_supplier_map')
+    .select('material_id, is_active')
+    .eq('is_deleted', false)
+    .in('material_id', materialIds)
+
+  if (activeMapError) throw new ReceiptImportError(activeMapError.message, 500, 'DATABASE_ERROR', activeMapError)
+
+  const activeMappedMaterialIds = new Set(
+    (activeMapRows ?? [])
+      .filter((row: any) => row.is_active !== false)
+      .map((row: any) => row.material_id),
+  )
+
   const existingKeys = new Set((existingRows ?? []).map((row: any) => `${row.material_id}:${row.supplier_id}`))
   const deletedMaterialIds = (existingRows ?? [])
     .filter((row: any) => row.is_deleted)
@@ -673,7 +687,12 @@ async function ensureReceiptSupplierMappings(supabase: any, receipt: any, items:
     if (restoreError) throw new ReceiptImportError(restoreError.message, 500, 'DATABASE_ERROR', restoreError)
   }
 
-  const missingRows = uniqueRows.filter((row: any) => !existingKeys.has(`${row.material_id}:${row.supplier_id}`))
+  const missingRows = uniqueRows
+    .filter((row: any) => !existingKeys.has(`${row.material_id}:${row.supplier_id}`))
+    .map((row: any) => ({
+      ...row,
+      is_preferred: !activeMappedMaterialIds.has(row.material_id),
+    }))
   if (missingRows.length === 0) return
 
   const { error: insertError } = await supabase
