@@ -9,6 +9,7 @@ import { FilterChips } from '@/components/mat/FilterChips'
 import { InlineStatusSelect } from '@/components/mat/InlineStatusSelect'
 import { formatThaiDateShort } from '@/lib/utils'
 import { calculateMaterialQuality, getMaterialCode, getMaterialPriceWarning, getMaterialRouteId } from '@/lib/material-master'
+import { routes } from '@/lib/routes'
 import type { MatLatestPrice, MatMaster, MatQualityScore, MatStatus } from '@/types/mat'
 
 interface MaterialListProps {
@@ -348,6 +349,8 @@ export function MaterialList({
                 const price = latestPrices[m.material_id]
                 const code = getMaterialCode(m)
                 const routeId = getMaterialRouteId(m)
+                const detailHref = routes.materials.detail(routeId)
+                const editHref = routes.materials.edit(routeId)
                 const warning = getMaterialPriceWarning(price)
                 const currentPriceStatus = priceStatus(price, warning)
                 const computedQuality: {
@@ -370,7 +373,7 @@ export function MaterialList({
                 return (
                   <tr key={m.material_id} className="group">
                     <td>
-                      <Link href={`/materials/${routeId}`} className="font-mono text-xs font-semibold text-blue-900 hover:underline">
+                      <Link href={detailHref ?? routes.materials.list()} className="font-mono text-xs font-semibold text-blue-900 hover:underline">
                         {code}
                       </Link>
                       {m.id && <p className="mt-0.5 max-w-[120px] truncate text-[10px] text-slate-300">{m.id}</p>}
@@ -430,7 +433,7 @@ export function MaterialList({
                     <td className="sticky right-0 z-10 bg-white/95 backdrop-blur transition-colors group-hover:bg-blue-50/95">
                       <div className="flex items-center justify-end gap-1">
                         <IconBtn
-                          href={`/materials/${routeId}`}
+                          href={detailHref ?? undefined}
                           title="ดูรายละเอียด"
                           icon={
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -440,7 +443,7 @@ export function MaterialList({
                           }
                         />
                         <IconBtn
-                          href={`/materials/${routeId}/edit`}
+                          href={editHref ?? undefined}
                           title="แก้ไข"
                           icon={
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

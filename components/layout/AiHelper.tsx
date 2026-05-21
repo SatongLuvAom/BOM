@@ -24,7 +24,7 @@ export function AiHelper() {
   const pathname = usePathname()
   const { t } = useI18n()
 
-  if (pathname.startsWith('/receipts')) return null
+  if (pathname.startsWith('/receipts') || pathname.startsWith('/materials')) return null
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-50 print:hidden">
