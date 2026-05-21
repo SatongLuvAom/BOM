@@ -8,6 +8,7 @@ import { analyzeMaterialQuality } from '@/lib/material-quality'
 import { fetchLatestPriceMap } from '@/lib/server/material-quality-data'
 import { databaseError, notFoundError, relationInUseError, validationError } from '@/lib/api/responses'
 import { resolveMaterialReference } from '@/lib/server/material-resolver'
+import { inferSpecKeyFromMaterialText, sanitizeSpecKey } from '@/lib/material-code'
 
 type Params = { params: Promise<{ id: string }> }
 const MATERIAL_WRITE_SELECT = `
@@ -157,37 +158,39 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     )
   }
 
-  if (
-    input.material_type_id
-    && before.material_type_id
-    && input.material_type_id !== before.material_type_id
-  ) {
+  const categoryChanged = Boolean(input.cat_id && before.cat_id && input.cat_id !== before.cat_id)
+  const targetTypeId = input.material_type_id || (categoryChanged ? '' : before.material_type_id)
+  const targetSpecKey = input.code_spec_key
+    ? sanitizeSpecKey(input.code_spec_key)
+    : inferSpecKeyFromMaterialText({
+      spec: input.spec ?? before.spec,
+      matNameEn: input.mat_name_en ?? before.mat_name_en,
+      matNameTh: input.mat_name_th ?? before.mat_name_th,
+      brand: input.brand ?? before.brand,
+      model: input.model ?? before.model,
+    })
+
+  const beforeTypeId = String(before.material_type_id ?? '')
+  const requestedTypeId = String(targetTypeId ?? '')
+  const beforeSpecKey = before.code_spec_key ? sanitizeSpecKey(before.code_spec_key) : ''
+  const requestedSpecKey = targetSpecKey ? sanitizeSpecKey(targetSpecKey) : ''
+  const codeAffectingChanged = Boolean(before.code_locked && (
+    categoryChanged
+    || requestedTypeId !== beforeTypeId
+    || requestedSpecKey !== beforeSpecKey
+  ))
+
+  if (codeAffectingChanged && !String(input.code_change_reason ?? '').trim()) {
     return validationError(
-      { material_type_id: ['Material type is part of the locked material code. Use Change Code / Regenerate Code.'] },
-      'Material code is locked',
+      { code_change_reason: ['กรุณาใส่เหตุผลเพื่อสร้างรหัสใหม่'] },
+      'Material code change reason is required',
     )
   }
 
-  if (
-    input.code_spec_key
-    && before.code_spec_key
-    && input.code_spec_key !== before.code_spec_key
-  ) {
+  if (codeAffectingChanged && !targetTypeId) {
     return validationError(
-      { code_spec_key: ['Spec key is part of the locked material code. Use Change Code / Regenerate Code.'] },
-      'Material code is locked',
-    )
-  }
-
-  if (
-    before.code_locked
-    && input.cat_id
-    && before.cat_id
-    && input.cat_id !== before.cat_id
-  ) {
-    return validationError(
-      { cat_id: ['Category is part of the locked material code. Use Change Code / Regenerate Code.'] },
-      'Material code is locked',
+      { material_type_id: ['กรุณาเลือกชนิดวัสดุก่อนสร้างรหัสใหม่'] },
+      'Material type is required for material code regeneration',
     )
   }
 
@@ -196,17 +199,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     material_type_id: _materialTypeId,
     code_spec_key: _codeSpecKey,
     code_change_reason: _codeChangeReason,
+    cat_id: _catId,
+    category_id: _categoryId,
     ...editableInput
   } = input
   const patch: Record<string, unknown> = { ...editableInput }
 
-  if (input.cat_id) {
+  if (!codeAffectingChanged && input.cat_id) {
     const { data: category } = await supabase
       .from('mat_category')
       .select('id')
       .eq('cat_id', input.cat_id)
       .eq('is_deleted', false)
       .single()
+    patch.cat_id = input.cat_id
     patch.category_id = category?.id ?? null
   }
 
@@ -220,8 +226,33 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     patch.base_uom_id = uom?.id ?? null
   }
 
+  let codeChangeResult: { old_code?: string | null; new_code?: string | null } | null = null
+
+  if (codeAffectingChanged) {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('fn_apply_material_code_change_v1', {
+      p_material_id: resolved.material_id,
+      p_material_type_id: targetTypeId,
+      p_code_spec_key: requestedSpecKey || 'GEN',
+      p_change_reason: input.code_change_reason,
+      p_changed_by: owner.id,
+    })
+
+    if (rpcError) {
+      const message = /function .*fn_apply_material_code_change_v1/i.test(rpcError.message)
+        ? 'ยังไม่ได้ติดตั้ง SQL สำหรับเปลี่ยนรหัสวัสดุ กรุณารัน phase2a10_material_code_standard_v1.sql และ phase2b7_material_code_rpc_rls_fix.sql'
+        : 'สร้างรหัสวัสดุใหม่ไม่สำเร็จ'
+      return databaseError(message, { message: rpcError.message })
+    }
+
+    const result = Array.isArray(rpcData) ? rpcData[0] : rpcData
+    if (!result?.new_code) {
+      return databaseError('สร้างรหัสวัสดุใหม่ไม่สำเร็จ: ระบบไม่ส่งรหัสใหม่กลับมา')
+    }
+    codeChangeResult = result
+  }
+
   patch.normalized_name = buildNormalizedMaterialName({
-    material_code: String(patch.material_code ?? before.material_code ?? before.material_id),
+    material_code: String(codeChangeResult?.new_code ?? before.material_code ?? before.material_id),
     mat_name_th: String(patch.mat_name_th ?? before.mat_name_th ?? ''),
     mat_name_en: String(patch.mat_name_en ?? before.mat_name_en ?? ''),
     brand: String(patch.brand ?? before.brand ?? ''),

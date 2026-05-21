@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { MatCategory, MatMaster, MatUom, MaterialType } from '@/types/mat'
 import type { CreateMaterialInput } from '@/lib/validations/material'
-import { createMaterialSchema } from '@/lib/validations/material'
+import { createMaterialSchema, updateMaterialSchema } from '@/lib/validations/material'
 import { getMaterialCode, getMaterialRouteId } from '@/lib/material-master'
 import { inferExplicitSpecKeyFromText, inferSpecKeyFromText, inferTypePrefixFromText } from '@/lib/material-code'
 import { routes } from '@/lib/routes'
@@ -36,6 +36,10 @@ type DuplicateWarning = {
   matched_reasons: { key: string; label: string; points: number; detail?: string }[]
 }
 
+type MaterialFormState = CreateMaterialInput & {
+  code_change_reason?: string
+}
+
 const STATUS_OPTIONS = [
   { value: 'ACTIVE',       label: 'ใช้งาน' },
   { value: 'INACTIVE',     label: 'ปิดใช้งาน' },
@@ -57,7 +61,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
   const [duplicateCheckLoading, setDuplicateCheckLoading] = useState(false)
   const [duplicateCheckError, setDuplicateCheckError] = useState('')
 
-  const [form, setForm] = useState<CreateMaterialInput>({
+  const [form, setForm] = useState<MaterialFormState>({
     material_code: material ? getMaterialCode(material) : '',
     cat_id:      material?.cat_id      ?? '',
     category_id: material?.category_id ?? '',
@@ -73,6 +77,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     base_uom_id: material?.base_uom_id ?? '',
     status:      material?.status      ?? 'ACTIVE',
     note:        material?.note        ?? '',
+    code_change_reason: '',
   })
 
   function set(key: keyof typeof form, value: string) {
@@ -129,6 +134,16 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     ].filter(Boolean).join(' '))
   }, [form.spec, form.mat_name_en, form.mat_name_th, form.brand, form.model])
 
+  const codeAffectingChanged = useMemo(() => {
+    if (isCreate || !material) return false
+
+    return (
+      (form.cat_id || '') !== (material.cat_id || '')
+      || (form.material_type_id || '') !== (material.material_type_id || '')
+      || (form.code_spec_key || '') !== (material.code_spec_key || '')
+    )
+  }, [form.cat_id, form.material_type_id, form.code_spec_key, isCreate, material])
+
   useEffect(() => {
     if (!isCreate || specKeyTouched || form.code_spec_key || !specKeySuggestion) return
 
@@ -151,7 +166,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
   }, [form.material_type_id, isCreate, suggestedType, typeTouched])
 
   useEffect(() => {
-    if (!isCreate || !form.cat_id) {
+    if ((!isCreate && !codeAffectingChanged) || !form.cat_id) {
       setCodePreview('')
       return
     }
@@ -194,7 +209,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [form.cat_id, form.material_type_id, form.code_spec_key, form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model, isCreate])
+  }, [codeAffectingChanged, form.cat_id, form.material_type_id, form.code_spec_key, form.mat_name_en, form.mat_name_th, form.spec, form.brand, form.model, isCreate])
 
   useEffect(() => {
     const hasName = form.mat_name_th.trim().length >= 2 || form.mat_name_en.trim().length >= 2
@@ -312,7 +327,16 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
     setError(null)
     setFieldErrors({})
 
-    const parsed = createMaterialSchema.safeParse(form)
+    if (codeAffectingChanged && !form.material_type_id) {
+      setFieldErrors({ material_type_id: 'กรุณาเลือกชนิดวัสดุก่อนสร้างรหัสใหม่' })
+      return
+    }
+    if (codeAffectingChanged && !String(form.code_change_reason ?? '').trim()) {
+      setFieldErrors({ code_change_reason: 'กรุณาใส่เหตุผลเพื่อสร้างรหัสใหม่' })
+      return
+    }
+
+    const parsed = (isCreate ? createMaterialSchema : updateMaterialSchema).safeParse(form)
     if (!parsed.success) {
       const errors: Record<string, string> = {}
       parsed.error.errors.forEach((err) => {
@@ -368,10 +392,10 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       )}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <Field label={isCreate ? 'ตัวอย่างรหัสวัสดุ' : 'รหัสวัสดุ'} error={fieldErrors.material_code}>
+        <Field label={isCreate || codeAffectingChanged ? 'ตัวอย่างรหัสวัสดุ' : 'รหัสวัสดุ'} error={fieldErrors.material_code}>
           <input
             type="text"
-            value={isCreate ? codePreview : form.material_code ?? ''}
+            value={isCreate || codeAffectingChanged ? codePreview : form.material_code ?? ''}
             placeholder="เช่น STR-260410-0001"
             readOnly
             className={`${inputCls(!!fieldErrors.material_code)} bg-slate-50 font-mono text-slate-600`}
@@ -379,6 +403,8 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           <p className="mt-1 text-xs text-slate-400">
             {isCreate
               ? 'ตัวอย่างเท่านั้น รหัสจริงจะถูกสร้างตอนบันทึก และจะถูกล็อกหลังสร้าง'
+              : codeAffectingChanged
+              ? 'ตัวอย่างเท่านั้น รหัสจริงจะถูกสร้างใหม่ตอนบันทึกพร้อมเหตุผล'
               : 'รหัสวัสดุอ่านอย่างเดียวในหน้าแก้ไขปกติ'}
           </p>
           {!isCreate && (
@@ -388,16 +414,8 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
                 รหัสนี้ใช้เชื่อมข้อมูลกับ BOM / BOQ การเปลี่ยนรหัสต้องมีเหตุผล
                 ระบบต้องเก็บประวัติรหัสเดิม และรหัสเดิมต้องค้นหาเจอผ่าน Alias ตาม workflow เดิม
               </p>
-              {materialRouteId && (
-                <Link
-                  href={`/materials/${materialRouteId}#code-history`}
-                  className="mt-3 inline-flex rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
-                >
-                  เปลี่ยน / สร้างรหัสใหม่
-                </Link>
-              )}
               <p className="mt-2 text-[11px] text-amber-800">
-                ปุ่มนี้พาไป workflow เปลี่ยนรหัสในหน้า Detail ซึ่งต้องบันทึกเหตุผลก่อนเปลี่ยน
+                ถ้าต้องแก้หมวดหมู่ / ชนิดวัสดุ / Spec key ให้แก้ในฟอร์มนี้ แล้วใส่เหตุผลด้านล่าง ระบบจะสร้างรหัสใหม่ตอนกดบันทึก
               </p>
             </div>
           )}
@@ -469,15 +487,13 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
               placeholder="ปล่อยว่างได้ เช่น 006, 030W, W1000"
               className={`${inputCls(!!fieldErrors.code_spec_key)} font-mono`}
             />
-            {isCreate && (
-              <button
-                type="button"
-                onClick={applySpecKeySuggestion}
-                className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                เดาจากสเปก
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={applySpecKeySuggestion}
+              className="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              เดาจากสเปก
+            </button>
           </div>
           <p className="mt-1 text-xs text-slate-400">
             {form.code_spec_key
@@ -485,7 +501,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
               : 'ถ้าไม่ใส่ ระบบจะเดาจากสเปก/ชื่อสินค้า และถ้าเดาไม่ได้จะใช้ GEN ตอนบันทึก'}
             {' '}หมวดหมู่ {selectedCategory?.code_prefix ?? selectedCategory?.cat_code ?? '-'} / Type {selectedType?.code_prefix ?? inferredTypePrefix}
           </p>
-          {isCreate && specKeySuggestion && form.code_spec_key !== specKeySuggestion && (
+          {specKeySuggestion && form.code_spec_key !== specKeySuggestion && (
             <p className="mt-1 text-xs text-blue-600">
               ระบบแนะนำ: <button type="button" onClick={applySpecKeySuggestion} className="font-mono font-semibold underline">{specKeySuggestion}</button>
             </p>
@@ -598,6 +614,33 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         />
       )}
 
+      {!isCreate && codeAffectingChanged && (
+        <section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-blue-950">บันทึกพร้อมสร้างรหัสใหม่</h3>
+              <p className="mt-1 text-xs leading-5 text-blue-800">
+                คุณเปลี่ยนหมวดหมู่ / ชนิดวัสดุ / Spec key ซึ่งเป็นส่วนของรหัสวัสดุ ระบบจะสร้างรหัสใหม่ เก็บประวัติ และเก็บรหัสเดิมเป็น Alias ให้ค้นหาเจอ
+              </p>
+            </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-blue-800">
+              {codePreview || 'กำลังดูตัวอย่างรหัส'}
+            </span>
+          </div>
+          <label className="mt-3 block">
+            <span className="mb-1 block text-xs font-semibold text-blue-950">เหตุผลที่ต้องเปลี่ยนรหัส *</span>
+            <textarea
+              value={form.code_change_reason ?? ''}
+              onChange={(e) => set('code_change_reason', e.target.value)}
+              rows={2}
+              className={inputCls(!!fieldErrors.code_change_reason)}
+              placeholder="เช่น แก้ชนิดจาก GEN เป็น PAINT เพราะเป็นสีน้ำกึ่งเงา R2060"
+            />
+            {fieldErrors.code_change_reason && <p className="mt-1 text-xs text-red-600">{fieldErrors.code_change_reason}</p>}
+          </label>
+        </section>
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
         <button
@@ -606,7 +649,7 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
           className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white
                      hover:bg-blue-700 disabled:opacity-60 transition-colors"
         >
-          {saving ? 'กำลังบันทึก...' : isCreate ? 'สร้างวัสดุ' : 'บันทึกการเปลี่ยนแปลง'}
+          {saving ? 'กำลังบันทึก...' : isCreate ? 'สร้างวัสดุ' : codeAffectingChanged ? 'บันทึกและสร้างรหัสใหม่' : 'บันทึกการเปลี่ยนแปลง'}
         </button>
         <button
           type="button"
