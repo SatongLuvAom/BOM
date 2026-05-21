@@ -10,7 +10,19 @@ import { buildQualityScoreMap, fetchLatestPriceMap, type LatestMaterialPrice } f
 import { getCachedActiveCategories, getCachedActiveSuppliers } from '@/lib/server/master-data-cache'
 import type { MatQualityScore } from '@/types/mat'
 
-type SortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
+type SortKey =
+  | 'material_code'
+  | 'mat_name_th'
+  | 'brand'
+  | 'spec'
+  | 'category'
+  | 'base_uom'
+  | 'latest_price'
+  | 'supplier'
+  | 'price_status'
+  | 'quality_score'
+  | 'status'
+  | 'updated_at'
 type StatTone = 'blue' | 'orange' | 'amber' | 'green'
 
 interface PageProps {
@@ -28,6 +40,34 @@ interface PageProps {
 }
 
 export const dynamic = 'force-dynamic'
+
+const SORT_KEYS: SortKey[] = [
+  'material_code',
+  'mat_name_th',
+  'brand',
+  'spec',
+  'category',
+  'base_uom',
+  'latest_price',
+  'supplier',
+  'price_status',
+  'quality_score',
+  'status',
+  'updated_at',
+]
+
+const DIRECT_SORT_COLUMNS: Partial<Record<SortKey, string>> = {
+  material_code: 'material_code',
+  mat_name_th: 'mat_name_th',
+  brand: 'brand',
+  spec: 'spec',
+  category: 'cat_id',
+  base_uom: 'base_uom',
+  status: 'status',
+  updated_at: 'updated_at',
+}
+
+const IN_MEMORY_SORT_LIMIT = 50000
 
 const statToneClass: Record<StatTone, { icon: string; iconText: string; hint: string }> = {
   blue: { icon: 'bg-blue-50', iconText: 'text-blue-700', hint: 'text-blue-700' },
@@ -119,6 +159,133 @@ function StatCard({
   )
 }
 
+function compareSortValues(left: string | number | null | undefined, right: string | number | null | undefined, ascending: boolean) {
+  const leftMissing = left === null || left === undefined || left === ''
+  const rightMissing = right === null || right === undefined || right === ''
+  if (leftMissing && rightMissing) return 0
+  if (leftMissing) return 1
+  if (rightMissing) return -1
+
+  if (typeof left === 'number' && typeof right === 'number') {
+    const diff = left - right
+    return ascending ? diff : -diff
+  }
+
+  const diff = String(left).localeCompare(String(right), 'th', { numeric: true, sensitivity: 'base' })
+  return ascending ? diff : -diff
+}
+
+function priceStatusSortValue(price: LatestMaterialPrice | undefined) {
+  if (!price) return 0
+  if (price.is_stale || price.price_status === 'STALE') return 1
+  return 2
+}
+
+function sortMaterialRows(
+  rows: any[],
+  sortBy: SortKey,
+  ascending: boolean,
+  latestPrices: Record<string, LatestMaterialPrice>,
+  qualityScores: Record<string, MatQualityScore>,
+) {
+  return [...rows].sort((left, right) => {
+    let leftValue: string | number | null | undefined
+    let rightValue: string | number | null | undefined
+
+    switch (sortBy) {
+      case 'category':
+        leftValue = left.category?.cat_code ?? left.cat_id
+        rightValue = right.category?.cat_code ?? right.cat_id
+        break
+      case 'base_uom':
+        leftValue = left.uom?.uom_name_th ?? left.base_uom
+        rightValue = right.uom?.uom_name_th ?? right.base_uom
+        break
+      case 'latest_price':
+        leftValue = latestPrices[left.material_id]?.unit_price
+        rightValue = latestPrices[right.material_id]?.unit_price
+        break
+      case 'supplier':
+        leftValue = latestPrices[left.material_id]?.supplier_name
+        rightValue = latestPrices[right.material_id]?.supplier_name
+        break
+      case 'price_status':
+        leftValue = priceStatusSortValue(latestPrices[left.material_id])
+        rightValue = priceStatusSortValue(latestPrices[right.material_id])
+        break
+      case 'quality_score':
+        leftValue = qualityScores[left.material_id]?.quality_score
+        rightValue = qualityScores[right.material_id]?.quality_score
+        break
+      default:
+        leftValue = left[sortBy]
+        rightValue = right[sortBy]
+    }
+
+    const primary = compareSortValues(leftValue, rightValue, ascending)
+    if (primary !== 0) return primary
+
+    return compareSortValues(left.material_code ?? left.material_id, right.material_code ?? right.material_id, true)
+  })
+}
+
+async function loadMaterialPageDetails(supabase: any, materials: any[]) {
+  const matIds = materials.map((m) => m.material_id).filter(Boolean)
+  const latestPrices: Record<string, LatestMaterialPrice> = {}
+  let qualityScores: Record<string, MatQualityScore> = {}
+
+  if (matIds.length === 0) {
+    return { latestPrices, qualityScores }
+  }
+
+  const [priceMap, aliasRowsRes, supplierMapRowsRes, uomConvRowsRes] = await Promise.all([
+    fetchLatestPriceMap(supabase, matIds),
+    supabase
+      .from('mat_alias')
+      .select('material_id, alias_name')
+      .eq('is_deleted', false)
+      .in('material_id', matIds),
+    supabase
+      .from('mat_supplier_map')
+      .select('material_id, is_preferred, is_active')
+      .eq('is_deleted', false)
+      .in('material_id', matIds),
+    supabase
+      .from('mat_uom_conv')
+      .select('material_id, from_uom, from_uom_id, to_uom, to_uom_id')
+      .eq('is_deleted', false)
+      .in('material_id', matIds),
+  ])
+
+  Object.assign(latestPrices, priceMap)
+
+  const aliasesByMaterial = new Map<string, any[]>()
+  for (const row of aliasRowsRes.data ?? []) {
+    aliasesByMaterial.set(row.material_id, [...(aliasesByMaterial.get(row.material_id) ?? []), row])
+  }
+
+  const supplierMapsByMaterial = new Map<string, any[]>()
+  for (const row of supplierMapRowsRes.data ?? []) {
+    supplierMapsByMaterial.set(row.material_id, [...(supplierMapsByMaterial.get(row.material_id) ?? []), row])
+  }
+
+  const conversionsByMaterial = new Map<string, any[]>()
+  for (const row of uomConvRowsRes.data ?? []) {
+    conversionsByMaterial.set(row.material_id, [...(conversionsByMaterial.get(row.material_id) ?? []), row])
+  }
+
+  const enrichedMaterials = materials.map((material) => ({
+    ...material,
+    aliases: aliasesByMaterial.get(material.material_id) ?? [],
+    supplier_maps: supplierMapsByMaterial.get(material.material_id) ?? [],
+    uom_conversions: conversionsByMaterial.get(material.material_id) ?? [],
+  }))
+
+  qualityScores = buildQualityScoreMap(enrichedMaterials, latestPrices) as Record<string, MatQualityScore>
+
+  return { latestPrices, qualityScores }
+}
+
 export default async function MaterialsPage({ searchParams }: PageProps) {
   const sp = await searchParams
   const search = normalizeSearchTerm(sp.search)
@@ -128,8 +295,8 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
   const stalePrice = sp.stale_price ?? ''
   const supplierId = sp.supplier_id ?? ''
   const page = Math.max(1, parseInt(sp.page ?? '1', 10))
-  const validSortKeys: SortKey[] = ['material_code', 'material_id', 'mat_name_th', 'brand', 'status', 'updated_at']
-  const sortBy: SortKey = validSortKeys.includes(sp.sort_by as SortKey) ? (sp.sort_by as SortKey) : 'updated_at'
+  const explicitSort = SORT_KEYS.includes(sp.sort_by as SortKey)
+  const sortBy: SortKey = explicitSort ? (sp.sort_by as SortKey) : 'updated_at'
   const sortAsc = sp.sort_dir === 'asc'
   const limit = 20
   const { from, to } = getPaginationRange(page, limit)
@@ -193,19 +360,37 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
         query = query.in('material_id', ids.length > 0 ? ids : ['__none__'])
       }
 
-      if (search) {
-        const result = await query.limit(1000)
-        if (result.error || !result.data) return result
-
-        const rankedRows = sortRowsBySearchRank(result.data, rankedSearchIds)
-        return {
-          ...result,
-          data: rankedRows.slice(from, to + 1),
-          count: rankedRows.length,
-        }
+      const directSortColumn = DIRECT_SORT_COLUMNS[sortBy]
+      if (!search && directSortColumn) {
+        return query.order(directSortColumn, { ascending: sortAsc }).range(from, to)
       }
 
-      return query.order(sortBy, { ascending: sortAsc }).range(from, to)
+      const result = await query.range(0, IN_MEMORY_SORT_LIMIT - 1)
+      if (result.error || !result.data) return result
+
+      let sortedRows = result.data
+      if (search && !explicitSort) {
+        sortedRows = sortRowsBySearchRank(result.data, rankedSearchIds)
+      } else {
+        const needsDerivedData = ['latest_price', 'supplier', 'price_status', 'quality_score'].includes(sortBy)
+        const sortDetails = needsDerivedData
+          ? await loadMaterialPageDetails(supabase, result.data)
+          : { latestPrices: {}, qualityScores: {} }
+
+        sortedRows = sortMaterialRows(
+          result.data,
+          sortBy,
+          sortAsc,
+          sortDetails.latestPrices,
+          sortDetails.qualityScores,
+        )
+      }
+
+      return {
+        ...result,
+        data: sortedRows.slice(from, to + 1),
+        count: result.count ?? sortedRows.length,
+      }
     })(),
   ])
 
@@ -213,54 +398,7 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
   const total = materialsRes.count ?? 0
 
   const matIds = (materials as any[]).map((m) => m.material_id)
-  const latestPrices: Record<string, LatestMaterialPrice> = {}
-  let qualityScores: Record<string, MatQualityScore> = {}
-  if (matIds.length > 0) {
-    const [priceMap, aliasRowsRes, supplierMapRowsRes, uomConvRowsRes] = await Promise.all([
-      fetchLatestPriceMap(supabase, matIds),
-      supabase
-        .from('mat_alias')
-        .select('material_id, alias_name')
-        .eq('is_deleted', false)
-        .in('material_id', matIds),
-      supabase
-        .from('mat_supplier_map')
-        .select('material_id, is_preferred, is_active')
-        .eq('is_deleted', false)
-        .in('material_id', matIds),
-      supabase
-        .from('mat_uom_conv')
-        .select('material_id, from_uom, from_uom_id, to_uom, to_uom_id')
-        .eq('is_deleted', false)
-        .in('material_id', matIds),
-    ])
-
-    Object.assign(latestPrices, priceMap)
-
-    const aliasesByMaterial = new Map<string, any[]>()
-    for (const row of aliasRowsRes.data ?? []) {
-      aliasesByMaterial.set(row.material_id, [...(aliasesByMaterial.get(row.material_id) ?? []), row])
-    }
-
-    const supplierMapsByMaterial = new Map<string, any[]>()
-    for (const row of supplierMapRowsRes.data ?? []) {
-      supplierMapsByMaterial.set(row.material_id, [...(supplierMapsByMaterial.get(row.material_id) ?? []), row])
-    }
-
-    const conversionsByMaterial = new Map<string, any[]>()
-    for (const row of uomConvRowsRes.data ?? []) {
-      conversionsByMaterial.set(row.material_id, [...(conversionsByMaterial.get(row.material_id) ?? []), row])
-    }
-
-    const enrichedMaterials = (materials as any[]).map((material) => ({
-      ...material,
-      aliases: aliasesByMaterial.get(material.material_id) ?? [],
-      supplier_maps: supplierMapsByMaterial.get(material.material_id) ?? [],
-      uom_conversions: conversionsByMaterial.get(material.material_id) ?? [],
-    }))
-
-    qualityScores = buildQualityScoreMap(enrichedMaterials, latestPrices)
-  }
+  const { latestPrices, qualityScores } = await loadMaterialPageDetails(supabase, materials as any[])
 
   const pageMissingPrice = matIds.filter((id) => !latestPrices[id]).length
   const pageStalePrice = matIds.filter((id) => latestPrices[id]?.is_stale).length

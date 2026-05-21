@@ -27,12 +27,33 @@ const STATUS_OPTIONS: { value: MatStatus | ''; label: string }[] = [
   { value: 'DISCONTINUED', label: 'ยกเลิก' },
 ]
 
-type SortKey = 'material_code' | 'material_id' | 'mat_name_th' | 'brand' | 'status' | 'updated_at'
+type SortKey =
+  | 'material_code'
+  | 'mat_name_th'
+  | 'brand'
+  | 'spec'
+  | 'category'
+  | 'base_uom'
+  | 'latest_price'
+  | 'supplier'
+  | 'price_status'
+  | 'quality_score'
+  | 'status'
+  | 'updated_at'
 
-const SORT_COLS: { key: SortKey; label: string }[] = [
+const SORT_COLS: { key: SortKey; label: string; className?: string }[] = [
   { key: 'material_code', label: 'รหัสวัสดุ' },
   { key: 'mat_name_th', label: 'ชื่อวัสดุ' },
   { key: 'brand', label: 'Brand' },
+  { key: 'spec', label: 'SPEC' },
+  { key: 'category', label: 'หมวด' },
+  { key: 'base_uom', label: 'หน่วย' },
+  { key: 'latest_price', label: 'LATEST PRICE', className: 'text-right' },
+  { key: 'supplier', label: 'ซัพพลายเออร์' },
+  { key: 'price_status', label: 'สถานะราคา' },
+  { key: 'quality_score', label: 'คุณภาพข้อมูล' },
+  { key: 'status', label: 'สถานะ' },
+  { key: 'updated_at', label: 'อัปเดต' },
 ]
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -40,6 +61,13 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'material_code', label: 'รหัสวัสดุ' },
   { key: 'mat_name_th', label: 'ชื่อวัสดุ' },
   { key: 'brand', label: 'Brand' },
+  { key: 'spec', label: 'SPEC' },
+  { key: 'category', label: 'หมวด' },
+  { key: 'base_uom', label: 'หน่วย' },
+  { key: 'latest_price', label: 'ราคาล่าสุด' },
+  { key: 'supplier', label: 'ซัพพลายเออร์' },
+  { key: 'price_status', label: 'สถานะราคา' },
+  { key: 'quality_score', label: 'คุณภาพข้อมูล' },
   { key: 'status', label: 'สถานะ' },
 ]
 
@@ -303,25 +331,8 @@ export function MaterialList({
             <thead>
               <tr>
                 {SORT_COLS.map((col) => (
-                  <SortTh key={col.key} col={col} />
+                  <SortTh key={col.key} col={col} className={col.className ?? ''} />
                 ))}
-                <th>SPEC</th>
-                <th>หมวด</th>
-                <th>หน่วย</th>
-                <th className="text-right">ราคาล่าสุด</th>
-                <th>ซัพพลายเออร์</th>
-                <th>สถานะราคา</th>
-                <th>คุณภาพข้อมูล</th>
-                <th>
-                  <button type="button" onClick={() => handleSort('status')} className="inline-flex items-center rounded-lg px-2 py-1 hover:bg-slate-200/70 hover:text-blue-950">
-                    สถานะ<SortIcon dir={colDir('status')} />
-                  </button>
-                </th>
-                <th>
-                  <button type="button" onClick={() => handleSort('updated_at')} className="inline-flex items-center rounded-lg px-2 py-1 hover:bg-slate-200/70 hover:text-blue-950">
-                    อัปเดต<SortIcon dir={colDir('updated_at')} />
-                  </button>
-                </th>
                 <th className="sticky right-0 z-10 bg-slate-50/95 text-right backdrop-blur">จัดการ</th>
               </tr>
             </thead>
