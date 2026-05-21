@@ -135,6 +135,26 @@ export async function listReceiptReviewItems(supabase: any, receiptId: string, s
   return attachMaterialCandidatesToItems(enrichedItems, candidates)
 }
 
+export async function ensureReceiptMaterialCandidatesForReview(
+  supabase: any,
+  receiptId: string,
+  userId: string,
+  supplierId?: string | null,
+) {
+  const items = await listReceiptReviewItems(supabase, receiptId, supplierId)
+  const missingCandidateItemIds = items
+    .filter(shouldCreateMaterialCandidateForItem)
+    .map((item) => item.id)
+
+  if (missingCandidateItemIds.length === 0) return items
+
+  const generated = await generateReceiptMaterialCandidates(supabase, receiptId, userId, {
+    itemIds: missingCandidateItemIds,
+  })
+
+  return generated.items
+}
+
 export async function generateReceiptMaterialCandidates(
   supabase: any,
   receiptId: string,
@@ -174,6 +194,7 @@ export async function generateReceiptMaterialCandidates(
 
   const existingByItem = new Map((existingCandidates ?? []).map((candidate: any) => [candidate.receipt_item_id, candidate]))
   const candidateRows = (items ?? [])
+    .filter(shouldCreateMaterialCandidateForItem)
     .filter((item: ReceiptCandidateItem) => !item.material_candidate_id && !existingByItem.has(item.id))
     .map((item: ReceiptCandidateItem) => buildCandidatePayload(item, receipt, masterData, duplicateMaterials, userId))
     .filter(Boolean) as any[]
@@ -681,4 +702,19 @@ function appendReason(existing: string | null | undefined, reason: string) {
   if (!current) return reason
   if (current.includes(reason)) return current
   return `${current}; ${reason}`
+}
+
+function shouldCreateMaterialCandidateForItem(item: {
+  id?: string
+  raw_text?: string | null
+  item_name_raw?: string | null
+  material_id?: string | null
+  material_candidate_id?: string | null
+  action?: string | null
+  review_status?: string | null
+}) {
+  if (item.material_id || item.material_candidate_id) return false
+  if (item.review_status === 'posted' || item.action === 'ignore') return false
+  const itemName = String(item.item_name_raw || item.raw_text || '').trim()
+  return itemName.length >= 2
 }

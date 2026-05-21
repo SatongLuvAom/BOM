@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { requireOwner } from '@/lib/auth/owner'
 import { ReceiptReviewClient } from '@/components/receipts/ReceiptReviewClient'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
 import {
@@ -8,7 +9,7 @@ import {
   getReceiptById,
   isReceiptSchemaMissing,
 } from '@/lib/server/receipt-import'
-import { listReceiptReviewItems } from '@/lib/server/receipt-material-candidates'
+import { ensureReceiptMaterialCandidatesForReview } from '@/lib/server/receipt-material-candidates'
 import type { PurchaseReceiptItem, ReceiptSupplier, ReceiptUom, ReceiptCategory, ReceiptMaterialType } from '@/types/receipt'
 
 type PageProps = {
@@ -21,6 +22,7 @@ export const dynamic = 'force-dynamic'
 export default async function ReceiptReviewPage({ params, searchParams }: PageProps) {
   const { id } = await params
   const search = await searchParams
+  const owner = await requireOwner()
   const supabase = await createClient()
 
   try {
@@ -53,7 +55,7 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
     if (uomsRes.error) throw uomsRes.error
     if (categoriesRes.error) throw categoriesRes.error
     if (materialTypesRes.error) throw materialTypesRes.error
-    const enrichedItems = await listReceiptReviewItems(supabase, id, receipt.supplier_id)
+    const enrichedItems = await ensureReceiptMaterialCandidatesForReview(supabase, id, owner.id, receipt.supplier_id)
 
     return (
       <div className="flex min-h-full flex-col bg-slate-50">
