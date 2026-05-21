@@ -87,7 +87,9 @@ export function ReceiptReviewClient({
   const [creatingCandidates, setCreatingCandidates] = useState(false)
   const [candidateDraft, setCandidateDraft] = useState<ReceiptMaterialCandidate | null>(null)
   const [approvingCandidate, setApprovingCandidate] = useState(false)
+  const [candidateApproveStage, setCandidateApproveStage] = useState<string | null>(null)
   const [candidateNeedsConfirm, setCandidateNeedsConfirm] = useState(false)
+  const [savingItemIds, setSavingItemIds] = useState<Set<string>>(() => new Set())
   const [message, setMessage] = useState<string | null>(initialMessage)
   const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
@@ -139,6 +141,15 @@ export function ReceiptReviewClient({
     setMessage(null)
     setWarning(null)
     setError(null)
+  }
+
+  function setItemBusy(id: string, busy: boolean) {
+    setSavingItemIds((current) => {
+      const next = new Set(current)
+      if (busy) next.add(id)
+      else next.delete(id)
+      return next
+    })
   }
 
   async function saveHeader() {
@@ -199,32 +210,50 @@ export function ReceiptReviewClient({
   async function saveItem(item: PurchaseReceiptItem, patch?: Partial<PurchaseReceiptItem>) {
     if (item.review_status === 'posted') return
     clearMessages()
+    setItemBusy(item.id, true)
+    try {
     const payload = toItemPayload({ ...item, ...patch })
-    const res = await fetch(`/api/receipts/${receipt.id}/items/${item.id}`, {
+    const res = await fetchWithTimeout(`/api/receipts/${receipt.id}/items/${item.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    })
-    const json = await res.json()
+    }, 30000)
+    const json = await readApiJson(res)
     if (!res.ok) {
       setError(json.error ?? 'บันทึกรายการไม่สำเร็จ')
       return
     }
+    if (!json.data) {
+      setError('บันทึกรายการแล้วแต่ระบบไม่ส่งข้อมูลกลับ กรุณารีเฟรชหน้านี้')
+      return
+    }
     setItems((current) => current.map((row) => row.id === item.id ? mergeReceiptItem(row, json.data) : row))
     setMessage('บันทึกรายการแล้ว')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ')
+    } finally {
+      setItemBusy(item.id, false)
+    }
   }
 
   async function deleteItem(item: PurchaseReceiptItem) {
     if (item.review_status === 'posted') return
     if (!confirm(`ลบรายการ "${item.item_name_raw || item.id}" ?`)) return
     clearMessages()
-    const res = await fetch(`/api/receipts/${receipt.id}/items/${item.id}`, { method: 'DELETE' })
-    const json = await res.json()
+    setItemBusy(item.id, true)
+    try {
+    const res = await fetchWithTimeout(`/api/receipts/${receipt.id}/items/${item.id}`, { method: 'DELETE' }, 30000)
+    const json = await readApiJson(res)
     if (!res.ok) {
       setError(json.error ?? 'ลบรายการไม่สำเร็จ')
       return
     }
     setItems((current) => current.filter((row) => row.id !== item.id))
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'ลบรายการไม่สำเร็จ')
+    } finally {
+      setItemBusy(item.id, false)
+    }
   }
 
   async function uploadReceiptFile(event: React.ChangeEvent<HTMLInputElement>) {
@@ -375,13 +404,14 @@ export function ReceiptReviewClient({
 
   async function approveCandidateDraft(nextDraft: ReceiptMaterialCandidate, confirmDuplicate = false) {
     setApprovingCandidate(true)
+    setCandidateApproveStage('กำลังสร้างวัสดุและเชื่อมกับรายการสลิป...')
     clearMessages()
     try {
-      const res = await fetch(`/api/receipts/${receipt.id}/material-candidates/${nextDraft.id}/approve`, {
+      const res = await fetchWithTimeout(`/api/receipts/${receipt.id}/material-candidates/${nextDraft.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...toCandidatePayload(nextDraft), confirmDuplicate }),
-      })
+      }, 60000)
       const json = await readApiJson(res)
       if (!res.ok) {
         if (json.code === 'DUPLICATE' && json.details?.requiresConfirmation) {
@@ -393,6 +423,10 @@ export function ReceiptReviewClient({
         setError(json.error ?? 'อนุมัติและสร้างวัสดุไม่สำเร็จ')
         return
       }
+      if (!json.data?.items) {
+        setError('อนุมัติแล้วแต่ระบบไม่ส่งรายการสลิปกลับ กรุณารีเฟรชหน้านี้เพื่อตรวจสอบผล')
+        return
+      }
       setItems(json.data.items ?? [])
       setCandidateDraft(null)
       setCandidateNeedsConfirm(false)
@@ -400,6 +434,7 @@ export function ReceiptReviewClient({
     } catch (error) {
       setError(error instanceof Error ? error.message : 'อนุมัติและสร้างวัสดุไม่สำเร็จ')
     } finally {
+      setCandidateApproveStage(null)
       setApprovingCandidate(false)
     }
   }
@@ -688,20 +723,21 @@ export function ReceiptReviewClient({
               )}
               {items.map((item) => {
                 const rowLocked = isPosted || item.review_status === 'posted'
+                const rowBusy = savingItemIds.has(item.id)
                 const readinessDetail = getReceiptItemReadiness(item)
                 const pendingMaterialDraft = hasPendingMaterialDraft(item)
                 const actionValue = getReceiptItemAction(item)
                 return (
                 <tr key={item.id}>
                   <td className="min-w-[260px]">
-                    <input disabled={rowLocked} value={item.item_name_raw ?? ''} onChange={(e) => setItemField(item.id, 'item_name_raw', e.target.value)} className={inputClass} />
+                    <input disabled={rowLocked || rowBusy} value={item.item_name_raw ?? ''} onChange={(e) => setItemField(item.id, 'item_name_raw', e.target.value)} className={inputClass} />
                   </td>
                   <td>
-                    <input disabled={rowLocked} type="number" step="0.0001" value={item.qty ?? ''} onChange={(e) => setItemField(item.id, 'qty', e.target.value === '' ? null : Number(e.target.value))} className={inputClass} />
+                    <input disabled={rowLocked || rowBusy} type="number" step="0.0001" value={item.qty ?? ''} onChange={(e) => setItemField(item.id, 'qty', e.target.value === '' ? null : Number(e.target.value))} className={inputClass} />
                   </td>
                   <td>
                     <div className="space-y-1">
-                      <select disabled={rowLocked} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
+                      <select disabled={rowLocked || rowBusy} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
                         <option value="">-</option>
                         {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
                       </select>
@@ -711,15 +747,15 @@ export function ReceiptReviewClient({
                     </div>
                   </td>
                   <td>
-                    <input disabled={rowLocked} type="number" step="0.0001" value={item.unit_price ?? ''} onChange={(e) => setItemField(item.id, 'unit_price', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
+                    <input disabled={rowLocked || rowBusy} type="number" step="0.0001" value={item.unit_price ?? ''} onChange={(e) => setItemField(item.id, 'unit_price', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
                   </td>
                   <td>
-                    <input disabled={rowLocked} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
+                    <input disabled={rowLocked || rowBusy} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
                   </td>
                   <td className="min-w-[280px]">
                     <MaterialPicker
                       item={item}
-                      disabled={rowLocked}
+                      disabled={rowLocked || rowBusy}
                       onReviewCandidate={(candidate) => {
                         setCandidateDraft(candidate)
                         setCandidateNeedsConfirm(false)
@@ -741,7 +777,7 @@ export function ReceiptReviewClient({
                     />
                   </td>
                   <td>
-                    <select disabled={rowLocked || pendingMaterialDraft} value={actionValue} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
+                    <select disabled={rowLocked || rowBusy || pendingMaterialDraft} value={actionValue} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
                       {actionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                     {pendingMaterialDraft && (
@@ -762,10 +798,10 @@ export function ReceiptReviewClient({
                     <div className="flex justify-end gap-2">
                       {!rowLocked && (
                         <>
-                          <button type="button" onClick={() => saveItem(item)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50">
-                            บันทึก
+                          <button type="button" onClick={() => saveItem(item)} disabled={rowBusy} className="rounded-lg px-3 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50 disabled:opacity-50">
+                            {rowBusy ? 'กำลังบันทึก...' : 'บันทึก'}
                           </button>
-                          <button type="button" onClick={() => deleteItem(item)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50">
+                          <button type="button" onClick={() => deleteItem(item)} disabled={rowBusy} className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50">
                             ลบ
                           </button>
                         </>
@@ -787,6 +823,7 @@ export function ReceiptReviewClient({
           materialTypes={materialTypes}
           uoms={uoms}
           saving={approvingCandidate}
+          savingText={candidateApproveStage}
           needsConfirm={candidateNeedsConfirm}
           onChange={(nextDraft) => {
             setCandidateDraft(nextDraft)
@@ -816,6 +853,7 @@ function CandidateReviewModal({
   materialTypes,
   uoms,
   saving,
+  savingText,
   needsConfirm,
   onChange,
   onSave,
@@ -827,6 +865,7 @@ function CandidateReviewModal({
   materialTypes: ReceiptMaterialType[]
   uoms: ReceiptUom[]
   saving: boolean
+  savingText?: string | null
   needsConfirm: boolean
   onChange: (candidate: ReceiptMaterialCandidate) => void
   onSave: () => void
@@ -852,6 +891,12 @@ function CandidateReviewModal({
             ปิด
           </button>
         </div>
+
+        {savingText && (
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
+            {savingText}
+          </div>
+        )}
 
         {duplicateMatches.length > 0 && (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -1253,6 +1298,22 @@ async function readApiJson(response: Response) {
     throw new Error(response.ok
       ? 'ระบบตอบกลับไม่ถูกต้อง กรุณารีเฟรชหน้าแล้วลองใหม่'
       : `ระบบสร้างวัสดุไม่สำเร็จ (${response.status}) กรุณาลองใหม่`)
+  }
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 45000) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('ระบบใช้เวลานานเกินไป กรุณารีเฟรชหน้าแล้วลองใหม่')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
   }
 }
 

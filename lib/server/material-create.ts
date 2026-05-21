@@ -175,7 +175,7 @@ export async function createMaterialMasterRecord(
     throw new MaterialCreateError('Could not create material', 500, 'DATABASE_ERROR', error)
   }
 
-  await supabase
+  const { error: historyError } = await supabase
     .from('material_code_history')
     .insert({
       material_id,
@@ -184,11 +184,25 @@ export async function createMaterialMasterRecord(
       change_reason: options.sourceNote ?? 'Material code generated on material creation',
       changed_by: userId,
     })
+  if (historyError) {
+    console.error('[material-create] material_code_history insert failed', {
+      material_id,
+      message: historyError.message,
+    })
+  }
 
-  await Promise.all([
+  const sideEffects = await Promise.allSettled([
     addMaterialAliases(supabase, data, options.aliasNames ?? [], userId),
     addMaterialSupplierMap(supabase, data, options, userId),
   ])
+  for (const result of sideEffects) {
+    if (result.status === 'rejected') {
+      console.error('[material-create] non-critical side effect failed', {
+        material_id,
+        message: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      })
+    }
+  }
 
   await writeAuditLog({
     entityType: 'mat_master',
@@ -196,6 +210,11 @@ export async function createMaterialMasterRecord(
     action: 'CREATE',
     payload: data,
     createdBy: userId,
+  }).catch((error) => {
+    console.error('[material-create] audit log failed', {
+      material_id,
+      message: error instanceof Error ? error.message : String(error),
+    })
   })
 
   return data

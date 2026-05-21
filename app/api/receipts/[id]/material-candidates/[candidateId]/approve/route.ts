@@ -11,6 +11,12 @@ import {
 type Ctx = { params: Promise<{ id: string; candidateId: string }> }
 
 function receiptCandidateError(error: unknown) {
+  console.error('[receipt-candidate-approve-route] failed', {
+    message: error instanceof Error ? error.message : String(error),
+    code: error instanceof ReceiptImportError ? error.code : undefined,
+    status: error instanceof ReceiptImportError ? error.status : undefined,
+  })
+
   if (error instanceof ReceiptImportError) {
     return apiError(error.code as any, error.message, error.status, error.details)
   }
@@ -37,7 +43,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   try {
     const supabase = await createClient()
     const data = await approveReceiptMaterialCandidate(supabase, id, candidateId, parsed.data, owner.id)
-    return NextResponse.json({ data })
+    return NextResponse.json({ ok: true, data })
   } catch (error) {
     return receiptCandidateError(error)
   }
