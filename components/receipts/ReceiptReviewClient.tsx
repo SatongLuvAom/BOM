@@ -382,7 +382,7 @@ export function ReceiptReviewClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...toCandidatePayload(nextDraft), confirmDuplicate }),
       })
-      const json = await res.json()
+      const json = await readApiJson(res)
       if (!res.ok) {
         if (json.code === 'DUPLICATE' && json.details?.requiresConfirmation) {
           setCandidateDraft((current) => current ? { ...current, duplicate_warning: json.details.duplicateWarning } : current)
@@ -397,6 +397,8 @@ export function ReceiptReviewClient({
       setCandidateDraft(null)
       setCandidateNeedsConfirm(false)
       setMessage('สร้างวัสดุใหม่แล้ว ระบบเชื่อมรายการสลิปกับวัสดุนี้ให้แล้ว')
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'อนุมัติและสร้างวัสดุไม่สำเร็จ')
     } finally {
       setApprovingCandidate(false)
     }
@@ -1238,6 +1240,19 @@ function toItemPayload(item: PurchaseReceiptItem) {
     match_reason: item.match_reason,
     action,
     review_status: getClientReviewStatus(item),
+  }
+}
+
+async function readApiJson(response: Response) {
+  const text = await response.text()
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(response.ok
+      ? 'ระบบตอบกลับไม่ถูกต้อง กรุณารีเฟรชหน้าแล้วลองใหม่'
+      : `ระบบสร้างวัสดุไม่สำเร็จ (${response.status}) กรุณาลองใหม่`)
   }
 }
 

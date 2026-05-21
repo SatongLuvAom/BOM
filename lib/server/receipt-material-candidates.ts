@@ -304,11 +304,15 @@ export async function approveReceiptMaterialCandidate(
   input: z.infer<typeof approveReceiptMaterialCandidateSchema>,
   userId: string,
 ) {
-  const candidate = await updateReceiptMaterialCandidate(supabase, receiptId, candidateId, input, userId)
+  const storedCandidate = await getCandidateForUpdate(supabase, receiptId, candidateId)
+  const candidate = {
+    ...storedCandidate,
+    ...normalizeCandidatePatch(input),
+  }
   const receipt = await getReceiptForCandidateAction(supabase, receiptId)
   const item = await getReceiptItemForCandidate(supabase, receiptId, candidate.receipt_item_id)
 
-  if (candidate.status === 'created') {
+  if (storedCandidate.status === 'created') {
     throw new ReceiptImportError('Draft วัสดุนี้สร้างเป็นวัสดุจริงแล้ว', 400, 'BAD_REQUEST')
   }
   if (!candidate.proposed_mat_name_th || candidate.proposed_mat_name_th.trim().length < 2) {
@@ -395,6 +399,7 @@ export async function approveReceiptMaterialCandidate(
     supabase
       .from('receipt_material_candidates')
       .update({
+        ...normalizeCandidatePatch(input),
         status: 'created',
         created_material_id: material.id,
         reviewed_by: userId,
