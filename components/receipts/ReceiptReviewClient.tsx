@@ -85,6 +85,7 @@ export function ReceiptReviewClient({
   const [fillingUoms, setFillingUoms] = useState(false)
   const [matchingMaterials, setMatchingMaterials] = useState(false)
   const [creatingCandidates, setCreatingCandidates] = useState(false)
+  const [repairingReceipt, setRepairingReceipt] = useState(false)
   const [candidateDraft, setCandidateDraft] = useState<ReceiptMaterialCandidate | null>(null)
   const [approvingCandidate, setApprovingCandidate] = useState(false)
   const [candidateApproveStage, setCandidateApproveStage] = useState<string | null>(null)
@@ -377,6 +378,38 @@ export function ReceiptReviewClient({
     }
   }
 
+  async function repairReceiptState() {
+    if (isPosted || repairingReceipt) return
+    if (!confirm('ต้องการซ่อมสถานะสลิปนี้หรือไม่? ระบบจะปรับสถานะรายการที่ค้างให้ถูกต้อง แต่จะไม่บันทึกราคาและไม่สร้างวัสดุใหม่อัตโนมัติ')) return
+
+    setRepairingReceipt(true)
+    clearMessages()
+    try {
+      const res = await fetch(`/api/receipts/${receipt.id}/repair-state`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        setError(json.error ?? 'ซ่อมสถานะไม่สำเร็จ')
+        return
+      }
+
+      const fixedCount = json.data?.summary?.fixedCount ?? 0
+      const warnings = json.data?.summary?.warnings ?? []
+      if (json.data?.receipt) {
+        setReceipt(json.data.receipt)
+        setHeader(toHeaderForm(json.data.receipt))
+      }
+      setItems(json.data?.items ?? [])
+      setMessage(`ซ่อมสถานะสลิปแล้ว ${fixedCount} จุด`)
+      if (Array.isArray(warnings) && warnings.length > 0) {
+        setWarning(warnings.slice(0, 3).join(', '))
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'ซ่อมสถานะไม่สำเร็จ')
+    } finally {
+      setRepairingReceipt(false)
+    }
+  }
+
   async function saveCandidateDraft(nextDraft: ReceiptMaterialCandidate) {
     setApprovingCandidate(true)
     setCandidateNeedsConfirm(false)
@@ -430,7 +463,8 @@ export function ReceiptReviewClient({
       setItems(json.data.items ?? [])
       setCandidateDraft(null)
       setCandidateNeedsConfirm(false)
-      setMessage('สร้างวัสดุใหม่แล้ว ระบบเชื่อมรายการสลิปกับวัสดุนี้ให้แล้ว')
+      const materialCode = json.data.result?.material_code ?? json.data.material?.material_code
+      setMessage(materialCode ? `สร้างวัสดุสำเร็จ: ${materialCode}` : 'สร้างวัสดุสำเร็จ')
     } catch (error) {
       setError(error instanceof Error ? error.message : 'อนุมัติและสร้างวัสดุไม่สำเร็จ')
     } finally {
@@ -646,26 +680,31 @@ export function ReceiptReviewClient({
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {!isPosted && (
-              <button disabled={matchingMaterials || fillingUoms || posting || postingReady} type="button" onClick={autoMatchMaterials} className="btn-secondary">
+              <button disabled={matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={autoMatchMaterials} className="btn-secondary">
                 {matchingMaterials ? 'กำลังจับคู่วัสดุ...' : 'จับคู่วัสดุอัตโนมัติ'}
               </button>
             )}
             {!isPosted && (
-              <button disabled={creatingCandidates || matchingMaterials || fillingUoms || posting || postingReady} type="button" onClick={() => createMaterialCandidates()} className="btn-secondary">
+              <button disabled={creatingCandidates || matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={() => createMaterialCandidates()} className="btn-secondary">
                 {creatingCandidates ? 'กำลังสร้าง Draft วัสดุ...' : 'สร้าง Draft วัสดุจากรายการที่ไม่พบ'}
               </button>
             )}
             {!isPosted && (
-              <button disabled={fillingUoms || matchingMaterials || posting || postingReady} type="button" onClick={fillMissingUoms} className="btn-secondary">
+              <button disabled={repairingReceipt || fillingUoms || matchingMaterials || posting || postingReady} type="button" onClick={repairReceiptState} className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50">
+                {repairingReceipt ? 'กำลังซ่อมสถานะ...' : 'ซ่อมสถานะสลิปนี้'}
+              </button>
+            )}
+            {!isPosted && (
+              <button disabled={fillingUoms || matchingMaterials || posting || postingReady || repairingReceipt} type="button" onClick={fillMissingUoms} className="btn-secondary">
                 {fillingUoms ? 'กำลังเติมหน่วย...' : 'เติมหน่วยอัตโนมัติ'}
               </button>
             )}
             {!isPosted && (
-              <button disabled={postingReady || posting || matchingMaterials || readiness.ready === 0} type="button" onClick={postReadyItems} className="btn-primary">
+              <button disabled={postingReady || posting || matchingMaterials || repairingReceipt || readiness.ready === 0} type="button" onClick={postReadyItems} className="btn-primary">
                 {postingReady ? 'กำลังบันทึก...' : `บันทึกราคาที่พร้อมทั้งหมด (${readiness.ready})`}
               </button>
             )}
-            <button disabled={isPosted || posting || postingReady || matchingMaterials || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
+            <button disabled={isPosted || posting || postingReady || matchingMaterials || repairingReceipt || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
               {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
             </button>
           </div>

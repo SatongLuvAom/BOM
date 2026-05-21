@@ -22,7 +22,7 @@ function receiptCandidateError(error: unknown) {
   }
 
   if (isReceiptSchemaMissing(error)) {
-    return databaseError('Could not approve material candidate. Run sql/phase2b5_receipt_material_candidates.sql in Supabase first.', error)
+    return databaseError('Could not approve material candidate. Run sql/phase2b8_receipt_candidate_atomic_approval_and_repair.sql in Supabase first.', error)
   }
 
   return databaseError('Receipt material candidate approval failed', {

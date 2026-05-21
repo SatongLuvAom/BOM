@@ -2,10 +2,9 @@ import { z } from 'zod'
 import { normalizeMaterialSearchText } from '@/lib/material-master'
 import { inferSpecKeyFromMaterialText, inferTypePrefixFromText } from '@/lib/material-code'
 import { writeAuditLog } from '@/lib/server-utils'
-import { createMaterialMasterRecord, MaterialCreateError } from '@/lib/server/material-create'
 import {
   ReceiptImportError,
-  deriveReceiptItemReviewStatus,
+  getReceiptById,
   listReceiptItems,
 } from '@/lib/server/receipt-import'
 import { enrichReceiptItemsWithMaterialCandidates } from '@/lib/server/receipt-material-match'
@@ -104,27 +103,6 @@ type MaterialTypeRow = {
   is_active: boolean
 }
 
-type CandidateRepairRow = {
-  id: string
-  receipt_item_id: string
-  status: string
-  created_material_id: string | null
-  proposed_uom_id: string | null
-  proposed_uom_raw: string | null
-}
-
-type ReceiptItemRepairRow = {
-  id: string
-  material_id: string | null
-  material_candidate_id: string | null
-  action: string | null
-  review_status: string | null
-  uom_id: string | null
-  uom_raw: string | null
-  unit_price: number | null
-  match_reason: string | null
-}
-
 export async function getReceiptMaterialCandidates(supabase: any, receiptId: string) {
   const { data, error } = await supabase
     .from('receipt_material_candidates')
@@ -148,113 +126,12 @@ export function attachMaterialCandidatesToItems(items: any[], candidates: any[])
 }
 
 export async function listReceiptReviewItems(supabase: any, receiptId: string, supplierId?: string | null) {
-  await repairReceiptMaterialCandidateLinks(supabase, receiptId)
   const [items, candidates] = await Promise.all([
     listReceiptItems(supabase, receiptId),
     getReceiptMaterialCandidates(supabase, receiptId),
   ])
   const enrichedItems = await enrichReceiptItemsWithMaterialCandidates(supabase, items, supplierId)
   return attachMaterialCandidatesToItems(enrichedItems, candidates)
-}
-
-export async function repairReceiptMaterialCandidateLinks(supabase: any, receiptId: string) {
-  const [{ data: candidates, error: candidateError }, { data: items, error: itemError }] = await Promise.all([
-    supabase
-      .from('receipt_material_candidates')
-      .select('id, receipt_item_id, status, created_material_id, proposed_uom_id, proposed_uom_raw')
-      .eq('receipt_id', receiptId),
-    supabase
-      .from('purchase_receipt_items')
-      .select('id, material_id, material_candidate_id, action, review_status, uom_id, uom_raw, unit_price, match_reason')
-      .eq('receipt_id', receiptId)
-      .neq('review_status', 'posted'),
-  ])
-
-  if (candidateError) throw new ReceiptImportError(candidateError.message, 500, 'DATABASE_ERROR', candidateError)
-  if (itemError) throw new ReceiptImportError(itemError.message, 500, 'DATABASE_ERROR', itemError)
-
-  const candidateRows = (candidates ?? []) as CandidateRepairRow[]
-  const itemRows = (items ?? []) as ReceiptItemRepairRow[]
-  const candidateById = new Map<string, CandidateRepairRow>(candidateRows.map((candidate) => [candidate.id, candidate]))
-  const candidateByItemId = new Map<string, CandidateRepairRow>(candidateRows.map((candidate) => [candidate.receipt_item_id, candidate]))
-  const updates: Array<Promise<unknown>> = []
-
-  for (const item of itemRows) {
-    const candidate = item.material_candidate_id
-      ? candidateById.get(item.material_candidate_id) ?? candidateByItemId.get(item.id)
-      : candidateByItemId.get(item.id)
-    if (!candidate) continue
-
-    if (candidate.status === 'created' && candidate.created_material_id) {
-      const nextAction = item.action === 'ignore' ? 'ignore' : 'update_price'
-      const nextUomId = item.uom_id ?? candidate.proposed_uom_id ?? null
-      const nextReviewStatus = deriveReceiptItemReviewStatus({
-        action: nextAction,
-        material_id: candidate.created_material_id,
-        uom_id: nextUomId,
-        unit_price: item.unit_price,
-      })
-
-      if (
-        item.material_id !== candidate.created_material_id ||
-        item.material_candidate_id !== candidate.id ||
-        item.action !== nextAction ||
-        item.review_status !== nextReviewStatus
-      ) {
-        updates.push(
-          supabase
-            .from('purchase_receipt_items')
-            .update({
-              material_id: candidate.created_material_id,
-              suggested_material_id: candidate.created_material_id,
-              material_candidate_id: candidate.id,
-              material_resolution_status: 'matched_existing',
-              uom_id: nextUomId,
-              uom_raw: item.uom_raw ?? candidate.proposed_uom_raw ?? null,
-              action: nextAction,
-              review_status: nextReviewStatus,
-              match_confidence: 100,
-              match_reason: appendReason(item.match_reason, 'ซ่อมการเชื่อม Draft วัสดุที่สร้างแล้ว'),
-            })
-            .eq('id', item.id)
-            .eq('receipt_id', receiptId),
-        )
-      }
-      continue
-    }
-
-    if (
-      !item.material_id &&
-      item.action !== 'ignore' &&
-      (
-        item.material_candidate_id !== candidate.id ||
-        item.action !== 'create_material_needed' ||
-        item.review_status !== 'needs_review'
-      )
-    ) {
-      updates.push(
-        supabase
-          .from('purchase_receipt_items')
-          .update({
-            material_candidate_id: candidate.id,
-            material_resolution_status: 'candidate_created',
-            action: 'create_material_needed',
-            review_status: 'needs_review',
-          })
-          .eq('id', item.id)
-          .eq('receipt_id', receiptId),
-      )
-    }
-  }
-
-  if (updates.length === 0) return
-
-  const results = await Promise.all(updates)
-  for (const result of results as any[]) {
-    if (result?.error) {
-      throw new ReceiptImportError(result.error.message, 500, 'DATABASE_ERROR', result.error)
-    }
-  }
 }
 
 export async function ensureReceiptMaterialCandidatesForReview(
@@ -426,155 +303,68 @@ export async function approveReceiptMaterialCandidate(
   input: z.infer<typeof approveReceiptMaterialCandidateSchema>,
   userId: string,
 ) {
-  console.info('[receipt-candidate-approve] start', { receiptId, candidateId })
-  const storedCandidate = await getCandidateForUpdate(supabase, receiptId, candidateId)
-  const candidate = {
-    ...storedCandidate,
-    ...normalizeCandidatePatch(input),
+  const { data, error } = await supabase.rpc('approve_receipt_material_candidate_atomic', {
+    p_receipt_id: receiptId,
+    p_candidate_id: candidateId,
+    p_confirm_duplicate: Boolean(input.confirmDuplicate),
+    p_actor_id: userId,
+    p_candidate_patch: normalizeCandidatePatch(input),
+  })
+
+  if (error) {
+    throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
   }
+
+  if (data?.ok === false) {
+    throw new ReceiptImportError(
+      data.error ?? 'พบวัสดุคล้ายกัน กรุณาตรวจสอบก่อนสร้างใหม่',
+      data.code === 'DUPLICATE' ? 409 : 400,
+      data.code ?? 'VALIDATION_ERROR',
+      data.details,
+    )
+  }
+
+  if (!data?.ok) {
+    throw new ReceiptImportError('อนุมัติแล้วแต่ระบบไม่ส่งผลลัพธ์กลับมา', 500, 'DATABASE_ERROR', data)
+  }
+
   const receipt = await getReceiptForCandidateAction(supabase, receiptId)
-  const item = await getReceiptItemForCandidate(supabase, receiptId, candidate.receipt_item_id)
-
-  if (storedCandidate.status === 'created') {
-    throw new ReceiptImportError('Draft วัสดุนี้สร้างเป็นวัสดุจริงแล้ว', 400, 'BAD_REQUEST')
-  }
-  if (!candidate.proposed_mat_name_th || candidate.proposed_mat_name_th.trim().length < 2) {
-    throw new ReceiptImportError('กรุณาระบุชื่อวัสดุก่อนอนุมัติ', 400, 'VALIDATION_ERROR')
-  }
-  if (!candidate.proposed_category_id) {
-    throw new ReceiptImportError('กรุณาเลือกหมวดหมู่ก่อนอนุมัติ', 400, 'VALIDATION_ERROR')
-  }
-  if (!candidate.proposed_uom_id) {
-    throw new ReceiptImportError('กรุณาเลือกหน่วยนับก่อนอนุมัติ', 400, 'VALIDATION_ERROR')
-  }
-
-  const duplicateWarning = await buildDuplicateWarning(supabase, candidate)
-  if (duplicateWarning && !input.confirmDuplicate) {
-    console.info('[receipt-candidate-approve] duplicate-confirmation-required', { receiptId, candidateId })
-    throw new ReceiptImportError('พบวัสดุคล้ายกัน กรุณาตรวจสอบก่อนสร้างใหม่', 409, 'DUPLICATE', {
-      requiresConfirmation: true,
-      duplicateWarning,
-    })
-  }
-
-  const [{ data: category, error: categoryError }, { data: uom, error: uomError }] = await Promise.all([
-    supabase
-      .from('mat_category')
-      .select('id, cat_id')
-      .eq('id', candidate.proposed_category_id)
-      .maybeSingle(),
-    supabase
-      .from('mat_uom')
-      .select('id, uom_code')
-      .eq('id', candidate.proposed_uom_id)
-      .eq('is_deleted', false)
-      .maybeSingle(),
+  const [items, candidates] = await Promise.all([
+    listReceiptReviewItems(supabase, receiptId, receipt.supplier_id),
+    getReceiptMaterialCandidates(supabase, receiptId),
   ])
+  const updatedCandidate = candidates.find((candidate: any) => candidate.id === candidateId) ?? null
 
-  if (categoryError) throw new ReceiptImportError(categoryError.message, 500, 'DATABASE_ERROR', categoryError)
-  if (uomError) throw new ReceiptImportError(uomError.message, 500, 'DATABASE_ERROR', uomError)
-  if (!category) throw new ReceiptImportError('ไม่พบหมวดหมู่', 400, 'VALIDATION_ERROR')
-  if (!uom) throw new ReceiptImportError('ไม่พบหน่วยนับ', 400, 'VALIDATION_ERROR')
-
-  let material
-  try {
-    console.info('[receipt-candidate-approve] creating-material', { receiptId, candidateId })
-    material = await createMaterialMasterRecord(supabase, {
-      cat_id: category.cat_id,
-      category_id: category.id,
-      material_type_id: candidate.proposed_material_type_id ?? '',
-      code_spec_key: candidate.proposed_code_spec_key ?? '',
-      mat_name_th: candidate.proposed_mat_name_th,
-      mat_name_en: candidate.proposed_mat_name_en ?? '',
-      normalized_name: '',
-      spec: candidate.proposed_spec ?? '',
-      brand: candidate.proposed_brand ?? '',
-      model: candidate.proposed_model ?? '',
-      base_uom: uom.uom_code,
-      base_uom_id: uom.id,
-      status: 'ACTIVE',
-      note: `สร้างจาก Draft วัสดุของสลิป ${receipt.receipt_no ?? receipt.id}`,
-    }, userId, {
-      aliasNames: [
-        item.raw_text,
-        item.item_name_raw,
-        ...(candidate.proposed_aliases ?? []),
-      ],
-      supplierId: receipt.supplier_id,
-      supplierMaterialName: item.item_name_raw,
-      sourceNote: `Created from receipt material candidate ${candidate.id}`,
-    })
-  } catch (error) {
-    console.error('[receipt-candidate-approve] create-material-failed', {
-      receiptId,
-      candidateId,
-      message: error instanceof Error ? error.message : String(error),
-    })
-    if (error instanceof MaterialCreateError) {
-      throw new ReceiptImportError(error.message, error.status, error.code, error.details)
-    }
-    throw error
+  return {
+    candidate: updatedCandidate,
+    material: {
+      id: data.material_id,
+      material_code: data.material_code,
+    },
+    items,
+    result: data,
   }
+}
 
-  const nextAction = item.action === 'ignore' ? 'ignore' : 'update_price'
-  const nextUomId = item.uom_id ?? candidate.proposed_uom_id
-  const nextReviewStatus = deriveReceiptItemReviewStatus({
-    action: nextAction,
-    material_id: material.id,
-    uom_id: nextUomId,
-    unit_price: item.unit_price ?? candidate.proposed_unit_price,
+export async function repairReceiptState(supabase: any, receiptId: string, userId: string) {
+  const { data, error } = await supabase.rpc('repair_receipt_state_v1', {
+    p_receipt_id: receiptId,
+    p_actor_id: userId,
   })
 
-  console.info('[receipt-candidate-approve] linking-candidate', { receiptId, candidateId, materialId: material.id })
-  const [{ data: updatedCandidate, error: candidateError }, { error: itemError }] = await Promise.all([
-    supabase
-      .from('receipt_material_candidates')
-      .update({
-        ...normalizeCandidatePatch(input),
-        status: 'created',
-        created_material_id: material.id,
-        reviewed_by: userId,
-        reviewed_at: new Date().toISOString(),
-        material_created_at: new Date().toISOString(),
-        duplicate_warning: duplicateWarning,
-      })
-      .eq('id', candidateId)
-      .eq('receipt_id', receiptId)
-      .select(RECEIPT_MATERIAL_CANDIDATE_SELECT)
-      .single(),
-    supabase
-      .from('purchase_receipt_items')
-      .update({
-        material_id: material.id,
-        suggested_material_id: material.id,
-        material_candidate_id: candidateId,
-        material_resolution_status: 'matched_existing',
-        uom_id: nextUomId,
-        uom_raw: item.uom_raw ?? candidate.proposed_uom_raw ?? uom.uom_code,
-        action: nextAction,
-        review_status: nextReviewStatus,
-        match_confidence: 100,
-        match_reason: appendReason(item.match_reason, 'สร้างวัสดุใหม่จาก Draft และเลือกให้รายการนี้'),
-      })
-      .eq('id', item.id)
-      .eq('receipt_id', receiptId),
-  ])
+  if (error) {
+    throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  }
 
-  if (candidateError) throw new ReceiptImportError(candidateError.message, 500, 'DATABASE_ERROR', candidateError)
-  if (itemError) throw new ReceiptImportError(itemError.message, 500, 'DATABASE_ERROR', itemError)
-  await repairReceiptMaterialCandidateLinks(supabase, receiptId)
-
-  await writeAuditLog({
-    entityType: 'receipt_material_candidate',
-    entityKey: candidateId,
-    action: 'APPROVE_CREATE_MATERIAL',
-    payload: { candidate: updatedCandidate, material },
-    createdBy: userId,
-  })
+  const receipt = await getReceiptById(supabase, receiptId)
+  if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
 
   const items = await listReceiptReviewItems(supabase, receiptId, receipt.supplier_id)
-  console.info('[receipt-candidate-approve] complete', { receiptId, candidateId, materialId: material.id })
-  return { candidate: updatedCandidate, material, items }
+  return {
+    summary: data,
+    receipt,
+    items,
+  }
 }
 
 async function getCandidateForUpdate(supabase: any, receiptId: string, candidateId: string) {
@@ -606,19 +396,6 @@ async function getReceiptForCandidateAction(supabase: any, receiptId: string) {
   if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
   if (receipt.status === 'posted') throw new ReceiptImportError('สลิปนี้ถูกบันทึกเข้าระบบแล้ว', 400, 'BAD_REQUEST')
   return receipt
-}
-
-async function getReceiptItemForCandidate(supabase: any, receiptId: string, itemId: string) {
-  const { data, error } = await supabase
-    .from('purchase_receipt_items')
-    .select('id, receipt_id, raw_text, item_name_raw, uom_raw, uom_id, unit_price, action, match_reason')
-    .eq('id', itemId)
-    .eq('receipt_id', receiptId)
-    .maybeSingle()
-
-  if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
-  if (!data) throw new ReceiptImportError('Receipt item not found', 404, 'NOT_FOUND')
-  return data
 }
 
 function normalizeCandidatePatch(input: CandidateInput) {
@@ -833,13 +610,6 @@ function tokenSimilarity(left: string, right: string) {
     if (rightTokens.has(token)) intersection += 1
   }
   return intersection / (leftTokens.size + rightTokens.size - intersection)
-}
-
-function appendReason(existing: string | null | undefined, reason: string) {
-  const current = String(existing ?? '').trim()
-  if (!current) return reason
-  if (current.includes(reason)) return current
-  return `${current}; ${reason}`
 }
 
 function shouldCreateMaterialCandidateForItem(item: {

@@ -271,6 +271,8 @@ export function isReceiptSchemaMissing(error: any) {
     text.includes('receipt_material_candidates') ||
     text.includes('material_candidate_id') ||
     text.includes('material_resolution_status') ||
+    text.includes('approve_receipt_material_candidate_atomic') ||
+    text.includes('repair_receipt_state_v1') ||
     text.includes('fn_post_purchase_receipt_ready_items') ||
     text.includes('fn_post_purchase_receipt_to_price_history')
   )
