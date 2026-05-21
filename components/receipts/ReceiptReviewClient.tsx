@@ -687,6 +687,8 @@ export function ReceiptReviewClient({
               {items.map((item) => {
                 const rowLocked = isPosted || item.review_status === 'posted'
                 const readinessDetail = getReceiptItemReadiness(item)
+                const pendingMaterialDraft = hasPendingMaterialDraft(item)
+                const actionValue = getReceiptItemAction(item)
                 return (
                 <tr key={item.id}>
                   <td className="min-w-[260px]">
@@ -737,9 +739,14 @@ export function ReceiptReviewClient({
                     />
                   </td>
                   <td>
-                    <select disabled={rowLocked} value={item.action ?? 'needs_review'} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
+                    <select disabled={rowLocked || pendingMaterialDraft} value={actionValue} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
                       {actionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
+                    {pendingMaterialDraft && (
+                      <p className="mt-1 text-[11px] font-semibold text-amber-700">
+                        ต้องอนุมัติ Draft วัสดุก่อนอัปเดตราคา
+                      </p>
+                    )}
                   </td>
                   <td>
                     <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${readinessDetail.className}`}>
@@ -1211,7 +1218,7 @@ function toHeaderPayload(form: HeaderForm) {
 }
 
 function toItemPayload(item: PurchaseReceiptItem) {
-  const action = item.action ?? 'needs_review'
+  const action = getReceiptItemAction(item)
   return {
     line_no: item.line_no,
     raw_text: item.raw_text,
@@ -1266,9 +1273,10 @@ function toCandidatePayload(candidate: ReceiptMaterialCandidate) {
 
 function getClientReviewStatus(item: PurchaseReceiptItem) {
   if (item.review_status === 'posted') return 'posted'
-  if (item.action === 'ignore') return 'reviewed'
-  if (item.action === 'create_material_needed') return 'needs_review'
-  if (item.action === 'update_price') {
+  const action = getReceiptItemAction(item)
+  if (action === 'ignore') return 'reviewed'
+  if (action === 'create_material_needed') return 'needs_review'
+  if (action === 'update_price') {
     return item.material_id && item.uom_id && Number(item.unit_price ?? 0) > 0
       ? 'reviewed'
       : 'needs_review'
@@ -1286,7 +1294,9 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
     }
   }
 
-  if (item.action === 'ignore') {
+  const action = getReceiptItemAction(item)
+
+  if (action === 'ignore') {
     return {
       key: 'ignored',
       label: 'ไม่บันทึกรายการนี้',
@@ -1295,16 +1305,16 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
     }
   }
 
-  if (item.action === 'create_material_needed') {
+  if (action === 'create_material_needed') {
     return {
       key: 'create_material_needed',
       label: 'รอสร้างวัสดุใหม่',
-      helper: null,
+      helper: hasPendingMaterialDraft(item) ? 'กดตรวจ Draft วัสดุ แล้วอนุมัติสร้างวัสดุก่อนบันทึกราคา' : null,
       className: 'border-amber-200 bg-amber-50 text-amber-700',
     }
   }
 
-  if (item.action === 'update_price') {
+  if (action === 'update_price') {
     if (!item.material_id) {
       return {
         key: 'missing_material',
@@ -1381,19 +1391,30 @@ function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[
   const blockers: string[] = []
   if (receipt.status === 'posted') return blockers
   if (!receipt.supplier_id) blockers.push('ต้องเลือกซัพพลายเออร์')
-  if (!items.some((item) => item.action === 'update_price')) blockers.push('ยังไม่มีรายการที่เลือก "อัปเดตราคา"')
+  if (!items.some((item) => getReceiptItemAction(item) === 'update_price')) blockers.push('ยังไม่มีรายการที่เลือก "อัปเดตราคา"')
   for (const item of items) {
     const label = item.line_no ? `บรรทัด ${item.line_no}` : item.item_name_raw || item.id
-    if (item.action === 'update_price') {
+    const action = getReceiptItemAction(item)
+    if (action === 'update_price') {
       if (!item.material_id) blockers.push(`${label} ยังไม่ได้เลือกวัสดุ`)
       if (!item.uom_id) blockers.push(`${label} ต้องมีหน่วยก่อนบันทึก`)
       if (!item.unit_price || item.unit_price <= 0) blockers.push(`${label} ราคา/หน่วยไม่ถูกต้อง`)
       if (getClientReviewStatus(item) !== 'reviewed') blockers.push(`${label} ยังต้องตรวจสอบ`)
-    } else if (!item.action || item.action === 'needs_review') {
+    } else if (!action || action === 'needs_review') {
       blockers.push(`${label} ยังต้องตรวจสอบ`)
     }
   }
   return blockers
+}
+
+function hasPendingMaterialDraft(item: PurchaseReceiptItem) {
+  return Boolean(item.material_candidate_id && !item.material_id && item.material_candidate?.status !== 'created' && item.action !== 'ignore')
+}
+
+function getReceiptItemAction(item: PurchaseReceiptItem): ReceiptItemAction {
+  if (item.action === 'ignore') return 'ignore'
+  if (hasPendingMaterialDraft(item)) return 'create_material_needed'
+  return item.action ?? 'needs_review'
 }
 
 const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-950/10'

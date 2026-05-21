@@ -190,13 +190,15 @@ function normalizeReceiptPayload(input: CreateReceiptDraftInput | UpdateReceiptD
 export function deriveReceiptItemReviewStatus(input: {
   action?: string | null
   material_id?: string | null
+  material_candidate_id?: string | null
   uom_id?: string | null
   unit_price?: number | null
   review_status?: string | null
 }) {
   if (input.review_status === 'posted') return 'posted'
 
-  const action = input.action || null
+  const hasPendingCandidate = Boolean(input.material_candidate_id && !input.material_id && input.action !== 'ignore')
+  const action = hasPendingCandidate ? 'create_material_needed' : input.action || null
   if (action === 'ignore') return 'reviewed'
   if (action === 'create_material_needed') return 'needs_review'
   if (action === 'update_price') {
@@ -222,7 +224,8 @@ function assertReviewStatusAllowed(input: {
 }
 
 function normalizeReceiptItemPayload(input: CreateReceiptItemInput | UpdateReceiptItemInput) {
-  const action = input.action || null
+  const hasPendingCandidate = Boolean(input.material_candidate_id && !input.material_id && input.action !== 'ignore')
+  const action = hasPendingCandidate ? 'create_material_needed' : input.action || null
   const itemName = normalizeNullableText(input.item_name_raw)
 
   return {
@@ -247,6 +250,7 @@ function normalizeReceiptItemPayload(input: CreateReceiptItemInput | UpdateRecei
     review_status: deriveReceiptItemReviewStatus({
       action,
       material_id: input.material_id ?? null,
+      material_candidate_id: input.material_candidate_id ?? null,
       uom_id: input.uom_id ?? null,
       unit_price: input.unit_price,
       review_status: input.review_status,
@@ -396,6 +400,10 @@ export async function updateReceiptItem(supabase: any, receiptId: string, itemId
   if (before.review_status === 'posted') throw new ReceiptImportError('รายการนี้บันทึกราคาแล้ว แก้ไขจากหน้านี้ไม่ได้', 400, 'BAD_REQUEST')
 
   const mergedItem = { ...before, ...input }
+  if (mergedItem.material_candidate_id && !mergedItem.material_id && mergedItem.action !== 'ignore') {
+    mergedItem.action = 'create_material_needed'
+    mergedItem.material_resolution_status = 'candidate_created'
+  }
   assertReviewStatusAllowed(mergedItem)
   const { data, error } = await supabase
     .from('purchase_receipt_items')
