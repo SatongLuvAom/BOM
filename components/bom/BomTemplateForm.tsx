@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { BomTemplate, BomItemType } from '@/types/bom'
+import { routes } from '@/lib/routes'
 
 const CATEGORIES = ['ผนัง', 'พื้น', 'เพดาน', 'เคาน์เตอร์/เฟอร์นิเจอร์', 'แสงไฟ', 'งานระบบ', 'อื่นๆ']
 const UNITS      = ['ตรม.', 'ตัว', 'เมตร', 'ชุด', 'จุด', 'ชิ้น', 'ม.']
@@ -120,8 +121,12 @@ export function BomTemplateForm({ mode, bom }: Props) {
       const json = await res.json()
       if (!res.ok) { setError(json.error ?? 'เกิดข้อผิดพลาด'); return }
 
-      router.push('/bom')
-      router.refresh()
+      const target = routes.bom.detail(mode === 'create' ? json.data?.bom_id : bom!.bom_id)
+      if (!target) {
+        setError('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+        return
+      }
+      router.push(target)
     } finally {
       setSaving(false)
     }
@@ -277,7 +282,10 @@ export function BomTemplateForm({ mode, bom }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => router.push('/bom')}
+          onClick={() => {
+            const target = mode === 'create' ? routes.bom.list() : routes.bom.detail(bom?.bom_id)
+            router.push(target ?? routes.bom.list())
+          }}
           className="text-sm text-gray-500 hover:text-gray-700"
         >
           ยกเลิก

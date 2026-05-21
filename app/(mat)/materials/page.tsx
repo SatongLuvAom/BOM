@@ -309,7 +309,7 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
             <Link href="/materials/cleanup" className="btn-secondary">
               ตรวจข้อมูลที่ไม่ครบ
             </Link>
-            <Link href="/materials/new" className="btn-primary">
+            <Link href="/materials/create" className="btn-primary">
               + เพิ่มวัสดุ
             </Link>
           </div>

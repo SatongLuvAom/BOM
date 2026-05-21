@@ -8,6 +8,7 @@ import type { CreateMaterialInput } from '@/lib/validations/material'
 import { createMaterialSchema } from '@/lib/validations/material'
 import { getMaterialCode, getMaterialRouteId } from '@/lib/material-master'
 import { inferExplicitSpecKeyFromText, inferSpecKeyFromText, inferTypePrefixFromText } from '@/lib/material-code'
+import { routes } from '@/lib/routes'
 
 interface MaterialFormProps {
   material?: MatMaster
@@ -341,10 +342,16 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
       }
 
       const id = isCreate
-        ? (json.data.id ?? json.data.material_id)
+        ? (json.data?.material_id ?? json.data?.id)
         : getMaterialRouteId(material!)
+      const target = routes.materials.detail(id)
 
-      router.push(`/materials/${id}`)
+      if (!target) {
+        setError('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+        return
+      }
+
+      router.push(target)
     } catch (err) {
       setError((err as Error).message || 'Save failed')
     } finally {
@@ -603,7 +610,10 @@ export function MaterialForm({ material, categories, uoms, materialTypes, mode }
         </button>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => {
+            const target = isCreate ? routes.materials.list() : routes.materials.detail(materialRouteId)
+            router.push(target ?? routes.materials.list())
+          }}
           className="rounded-lg px-5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
         >
           ยกเลิก

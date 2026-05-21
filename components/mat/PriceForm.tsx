@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { MatMaster, MatPriceBase, MatUom, Supplier } from '@/types/mat'
 import { createMatPriceBaseSchema } from '@/lib/validations/supplier'
+import { routes } from '@/lib/routes'
 
 interface PriceFormProps {
   mode: 'create' | 'edit'
@@ -97,7 +98,13 @@ export function PriceForm({
       const supplierId = mode === 'create' ? json.data.supplier_id : price!.supplier_id
       const effectiveDate = mode === 'create' ? json.data.effective_date : price!.effective_date
 
-      router.push(`/prices/${materialId}/${supplierId}/${effectiveDate}`)
+      const target = routes.prices.detail(materialId, supplierId, effectiveDate)
+      if (!target) {
+        setError('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+        return
+      }
+
+      router.push(target)
     } finally {
       setSaving(false)
     }
@@ -290,7 +297,12 @@ export function PriceForm({
         </button>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => {
+            const target = mode === 'edit'
+              ? routes.prices.detail(price?.material_id, price?.supplier_id, price?.effective_date)
+              : routes.prices.list()
+            router.push(target ?? routes.prices.list())
+          }}
           className="rounded-lg px-5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
         >
           Cancel

@@ -51,7 +51,7 @@ export default async function BoqPage({ searchParams }: PageProps) {
         title="BOQ Projects"
         subtitle={`${total.toLocaleString()} โปรเจกต์`}
         actions={
-          <Link href="/boq/new" className="btn-primary">
+          <Link href="/boq/create" className="btn-primary">
             + สร้าง BOQ
           </Link>
         }

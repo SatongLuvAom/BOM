@@ -245,6 +245,7 @@ export function Sidebar() {
           <p className="mt-0.5 text-[10px] text-slate-500">{t('app.versionStatus')}</p>
         </div>
         <button
+          type="button"
           onClick={handleLogout}
           className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-white hover:text-red-600"
         >

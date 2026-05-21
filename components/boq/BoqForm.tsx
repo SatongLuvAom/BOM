@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import type { BoqProject } from '@/types/boq'
 import type { Customer } from '@/types/customer'
+import { routes } from '@/lib/routes'
 
 interface Props {
   project?: BoqProject
@@ -75,8 +76,12 @@ export function BoqForm({ project }: Props) {
       })
       const json = await res.json()
       if (!res.ok) { setError(json.error ?? 'เกิดข้อผิดพลาด'); return }
-      router.push(`/boq/${isEdit ? project!.project_id : json.data.project_id}`)
-      router.refresh()
+      const target = routes.boq.detail(isEdit ? project!.project_id : json.data?.project_id)
+      if (!target) {
+        setError('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+        return
+      }
+      router.push(target)
     } finally {
       setLoading(false)
     }
@@ -108,7 +113,7 @@ export function BoqForm({ project }: Props) {
             ))}
           </select>
           <p className="mt-1 text-xs text-gray-400">
-            ยังไม่มี? <a href="/customers/new" target="_blank" className="text-blue-600 hover:underline">เพิ่มลูกค้า</a>
+            ยังไม่มี? <a href="/customers/create" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">เพิ่มลูกค้า</a>
           </p>
         </div>
         <div>
@@ -153,7 +158,10 @@ export function BoqForm({ project }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => {
+            const target = isEdit ? routes.boq.detail(project?.project_id) : routes.boq.list()
+            router.push(target ?? routes.boq.list())
+          }}
           className="rounded-lg border border-gray-300 px-5 py-2 text-sm text-gray-600 hover:bg-gray-50"
         >
           ยกเลิก

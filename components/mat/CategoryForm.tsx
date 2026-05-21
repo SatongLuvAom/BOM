@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { MatCategory } from '@/types/mat'
 import { createCategorySchema } from '@/lib/validations/category'
+import { routes } from '@/lib/routes'
 
 interface CategoryFormProps {
   category?: MatCategory
@@ -66,7 +67,7 @@ export function CategoryForm({ category, categories, mode }: CategoryFormProps) 
       const json = await res.json()
       if (!res.ok) { setError(json.error); return }
 
-      router.push('/categories')
+      router.push(routes.categories.list())
     } finally {
       setSaving(false)
     }
@@ -163,7 +164,7 @@ export function CategoryForm({ category, categories, mode }: CategoryFormProps) 
         </button>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push(routes.categories.list())}
           className="rounded-lg px-5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
         >
           ยกเลิก

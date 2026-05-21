@@ -49,7 +49,7 @@ export default async function CustomersPage({ searchParams }: PageProps) {
         subtitle={`${total.toLocaleString()} ราย`}
         actions={
           <Link
-            href="/customers/new"
+            href="/customers/create"
             className="btn-primary"
           >
             + เพิ่มลูกค้า

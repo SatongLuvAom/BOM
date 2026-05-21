@@ -143,6 +143,7 @@ export function BoqList({ projects }: { projects: BoqProject[] }) {
                       </Link>
                       {/* Delete */}
                       <button
+                        type="button"
                         onClick={() => handleDelete(p)}
                         disabled={deleting === p.project_id}
                         title="ลบ"

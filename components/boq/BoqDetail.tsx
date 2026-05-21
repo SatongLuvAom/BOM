@@ -12,6 +12,7 @@ import { AttachmentPanel } from '@/components/boq/AttachmentPanel'
 import { ItemComments } from '@/components/boq/ItemComments'
 import { BomPickerModal } from '@/components/boq/BomPickerModal'
 import { formatThaiDateShort } from '@/lib/utils'
+import { routes } from '@/lib/routes'
 import type { BoqProject, BoqItem, BoqStatus } from '@/types/boq'
 
 const TYPE_COLOR: Record<string, 'blue' | 'gray' | 'yellow' | 'orange'> = {
@@ -115,7 +116,14 @@ export function BoqDetail({ project }: { project: BoqProject }) {
     try {
       const res  = await fetch(`/api/boq/${project.project_id}/clone`, { method: 'POST' })
       const json = await res.json()
-      if (res.ok) router.push(`/boq/${json.data.project_id}`)
+      if (res.ok) {
+        const target = routes.boq.detail(json.data?.project_id)
+        if (!target) {
+          alert('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+          return
+        }
+        router.push(target)
+      }
     } finally {
       setCloning(false)
     }

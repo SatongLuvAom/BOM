@@ -81,7 +81,7 @@ export function getMaterialCode(material: { material_code?: string | null; mater
 }
 
 export function getMaterialRouteId(material: { id?: string | null; material_id?: string | null }) {
-  return material.id ?? material.material_id ?? ''
+  return material.material_id ?? material.id ?? ''
 }
 
 export function isPriceStale(dateValue: string | null | undefined, now = new Date()) {

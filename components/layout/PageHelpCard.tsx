@@ -14,7 +14,7 @@ type HelpContent = {
 
 function normalizeHelpKey(pathname: string) {
   if (pathname === '/dashboard') return 'dashboard'
-  if (pathname === '/materials/new') return 'materialNew'
+  if (pathname === '/materials/new' || pathname === '/materials/create') return 'materialNew'
   if (pathname === '/materials/cleanup') return 'cleanup'
   if (pathname === '/materials/code-cleanup') return 'codeCleanup'
   if (pathname === '/materials/duplicates') return 'duplicates'

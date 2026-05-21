@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Supplier } from '@/types/mat'
 import { createSupplierSchema } from '@/lib/validations/supplier'
+import { routes } from '@/lib/routes'
 
 interface SupplierFormProps {
   supplier?: Supplier
@@ -70,8 +71,15 @@ export function SupplierForm({ supplier, mode }: SupplierFormProps) {
         return
       }
 
-      const nextId = mode === 'create' ? json.data.supplier_id : supplier!.supplier_id
-      router.push(`/suppliers/${nextId}`)
+      const nextId = mode === 'create' ? json.data?.supplier_id : supplier!.supplier_id
+      const target = routes.suppliers.detail(nextId)
+
+      if (!target) {
+        setError('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+        return
+      }
+
+      router.push(target)
     } finally {
       setSaving(false)
     }
@@ -215,7 +223,10 @@ export function SupplierForm({ supplier, mode }: SupplierFormProps) {
         </button>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => {
+            const target = mode === 'create' ? routes.suppliers.list() : routes.suppliers.detail(supplier?.supplier_id)
+            router.push(target ?? routes.suppliers.list())
+          }}
           className="rounded-lg px-5 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
         >
           Cancel

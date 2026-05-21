@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { routes } from '@/lib/routes'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const SUPPORTED_MIME_TYPES = new Set([
@@ -356,7 +357,7 @@ export function ReceiptCreateDraftForm() {
             type="button"
             onClick={(event) => {
               event.preventDefault()
-              if (!isBusy) router.push('/receipts')
+              if (!isBusy) router.push(routes.receipts.list())
             }}
             disabled={isBusy}
             className="btn-secondary"
@@ -385,11 +386,8 @@ function getReceiptId(response: any) {
 }
 
 function getReceiptReviewPath(receiptId: unknown) {
-  if (typeof receiptId !== 'string') return null
-  const cleanId = receiptId.trim()
-  if (!/^[A-Za-z0-9-]{8,80}$/.test(cleanId)) return null
-  const targetPath = `/receipts/${encodeURIComponent(cleanId)}`
-  return targetPath.startsWith('/receipts/') ? targetPath : null
+  const targetPath = routes.receipts.detail(receiptId)
+  return targetPath?.startsWith('/receipts/') ? targetPath : null
 }
 
 function buildReviewNotice(aiStatus: string, message: string | null): ReceiptImportNotice | null {

@@ -14,7 +14,7 @@ const suggestions = [
   },
   {
     labelKey: 'aiHelper.suggestions.boq',
-    href: '/boq/new',
+    href: '/boq/create',
     hintKey: 'aiHelper.suggestions.boqHint',
   },
 ]

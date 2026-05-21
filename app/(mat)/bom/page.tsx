@@ -25,7 +25,7 @@ export default async function BomLibraryPage() {
         subtitle="สูตรงานบูธ — ใช้ explode รายการเข้า BOQ อัตโนมัติ"
         actions={
           <Link
-            href="/bom/new"
+            href="/bom/create"
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

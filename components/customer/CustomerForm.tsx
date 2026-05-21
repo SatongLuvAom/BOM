@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Customer } from '@/types/customer'
+import { routes } from '@/lib/routes'
 
 interface Props {
   customer?: Customer
@@ -55,8 +56,12 @@ export function CustomerForm({ customer }: Props) {
       })
       const json = await res.json()
       if (!res.ok) { setError(json.error ?? 'เกิดข้อผิดพลาด'); return }
-      router.push(`/customers/${isEdit ? customer!.customer_id : json.data.customer_id}`)
-      router.refresh()
+      const target = routes.customers.detail(isEdit ? customer!.customer_id : json.data?.customer_id)
+      if (!target) {
+        setError('ไม่สามารถเปิดหน้าถัดไปได้ เนื่องจากไม่พบรหัสรายการ')
+        return
+      }
+      router.push(target)
     } finally {
       setLoading(false)
     }
@@ -126,7 +131,10 @@ export function CustomerForm({ customer }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => {
+            const target = isEdit ? routes.customers.detail(customer?.customer_id) : routes.customers.list()
+            router.push(target ?? routes.customers.list())
+          }}
           className="rounded-lg border border-gray-300 px-5 py-2 text-sm text-gray-600 hover:bg-gray-50"
         >
           ยกเลิก

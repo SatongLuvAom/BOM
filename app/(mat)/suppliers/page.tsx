@@ -54,7 +54,7 @@ export default async function SuppliersPage({ searchParams }: PageProps) {
         subtitle={`${total.toLocaleString()} records`}
         actions={
           <Link
-            href="/suppliers/new"
+            href="/suppliers/create"
             className="btn-primary"
           >
             + Add supplier
