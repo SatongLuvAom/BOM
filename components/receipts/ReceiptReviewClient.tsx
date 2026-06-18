@@ -101,6 +101,10 @@ export function ReceiptReviewClient({
   const effectiveSupplierId = header.supplier_id || receipt.supplier_id || null
   const postBlockers = useMemo(() => buildPostBlockers({ ...receipt, supplier_id: effectiveSupplierId }, items), [effectiveSupplierId, receipt, items])
   const readiness = useMemo(() => buildReadinessSummary(items, isPosted), [items, isPosted])
+  const receiptFlowStatus = useMemo(
+    () => buildReceiptFlowStatus(receipt.status, Boolean(effectiveSupplierId), items.length, readiness, postBlockers.length),
+    [receipt.status, effectiveSupplierId, items.length, readiness, postBlockers.length],
+  )
 
   useEffect(() => {
     try {
@@ -683,6 +687,25 @@ export function ReceiptReviewClient({
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="font-bold text-blue-950">สถานะก่อนบันทึก</h3>
+            <div className={`mt-3 rounded-xl border px-4 py-3 ${receiptFlowStatus.className}`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide opacity-70">สถานะสลิปตอนนี้</p>
+                  <p className="mt-1 text-sm font-bold">{receiptFlowStatus.label}</p>
+                  <p className="mt-1 text-xs font-semibold opacity-80">{receiptFlowStatus.helper}</p>
+                </div>
+                {receiptFlowStatus.nextSteps.length > 0 && (
+                  <ol className="min-w-[220px] space-y-1 text-xs font-semibold">
+                    {receiptFlowStatus.nextSteps.slice(0, 4).map((step, index) => (
+                      <li key={step} className="flex gap-2">
+                        <span>{index + 1}.</span>
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            </div>
             {postBlockers.length === 0 ? (
               <p className="mt-2 text-sm font-semibold text-emerald-700">พร้อมบันทึกราคาเข้าระบบ</p>
             ) : (
@@ -734,12 +757,14 @@ export function ReceiptReviewClient({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-b border-slate-100 px-5 py-3 text-xs font-bold text-slate-700 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-100 px-5 py-3 text-xs font-bold text-slate-700 md:grid-cols-4 xl:grid-cols-7">
           <SummaryPill label="พร้อมบันทึก" value={readiness.ready} tone="green" />
-          <SummaryPill label="ต้องตรวจสอบ" value={readiness.needsReview} tone="amber" />
-          <SummaryPill label="ไม่มีวัสดุที่เลือก" value={readiness.missingMaterial} tone="red" />
+          <SummaryPill label="ยังไม่ผูกวัสดุ" value={readiness.missingMaterial} tone="red" />
+          <SummaryPill label="รอสร้างวัสดุ" value={readiness.createMaterialNeeded} tone="amber" />
           <SummaryPill label="ไม่มีหน่วย" value={readiness.missingUom} tone="red" />
           <SummaryPill label="ไม่มีราคา" value={readiness.missingPrice} tone="red" />
+          <SummaryPill label="ต้องตรวจสอบ" value={readiness.needsReview} tone="amber" />
+          <SummaryPill label="จบแล้ว/ข้าม" value={readiness.posted + readiness.ignored} tone="slate" />
         </div>
 
         {!isPosted && (
@@ -789,6 +814,7 @@ export function ReceiptReviewClient({
                 const rowBusy = savingItemIds.has(item.id)
                 const readinessDetail = getReceiptItemReadiness(item)
                 const pendingMaterialDraft = hasPendingMaterialDraft(item)
+                const materialFlow = getReceiptItemMaterialFlow(item)
                 const actionValue = getReceiptItemAction(item)
                 return (
                 <tr key={item.id}>
@@ -838,6 +864,9 @@ export function ReceiptReviewClient({
                       } as any)}
                       onIgnore={() => saveItem(item, { action: 'ignore' } as any)}
                     />
+                    <p className={`mt-2 text-[11px] font-bold ${materialFlow.className}`}>
+                      {materialFlow.label}
+                    </p>
                   </td>
                   <td>
                     <select disabled={rowLocked || rowBusy || pendingMaterialDraft} value={actionValue} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
@@ -855,6 +884,9 @@ export function ReceiptReviewClient({
                     </span>
                     {readinessDetail.helper && (
                       <p className="mt-1 text-[11px] font-semibold text-slate-500">{readinessDetail.helper}</p>
+                    )}
+                    {readinessDetail.nextAction && (
+                      <p className="mt-1 text-[11px] font-bold text-blue-700">ถัดไป: {readinessDetail.nextAction}</p>
                     )}
                   </td>
                   <td>
@@ -1245,12 +1277,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function SummaryPill({ label, value, tone }: { label: string; value: number; tone: 'green' | 'amber' | 'red' }) {
+function SummaryPill({ label, value, tone }: { label: string; value: number; tone: 'green' | 'amber' | 'red' | 'slate' }) {
   const toneClass = tone === 'green'
     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
     : tone === 'amber'
       ? 'border-amber-200 bg-amber-50 text-amber-700'
-      : 'border-red-200 bg-red-50 text-red-700'
+      : tone === 'red'
+        ? 'border-red-200 bg-red-50 text-red-700'
+        : 'border-slate-200 bg-slate-50 text-slate-600'
 
   return (
     <div className={`rounded-xl border px-3 py-2 ${toneClass}`}>
@@ -1429,6 +1463,7 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
       key: 'posted',
       label: 'บันทึกแล้ว',
       helper: null,
+      nextAction: null,
       className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     }
   }
@@ -1440,6 +1475,7 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
       key: 'ignored',
       label: 'ไม่บันทึกรายการนี้',
       helper: null,
+      nextAction: null,
       className: 'border-slate-200 bg-slate-50 text-slate-600',
     }
   }
@@ -1449,6 +1485,7 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
       key: 'create_material_needed',
       label: 'รอสร้างวัสดุใหม่',
       helper: hasPendingMaterialDraft(item) ? 'กดตรวจ Draft วัสดุ แล้วอนุมัติสร้างวัสดุก่อนบันทึกราคา' : null,
+      nextAction: hasPendingMaterialDraft(item) ? 'ตรวจ Draft วัสดุ' : 'สร้าง Draft วัสดุ',
       className: 'border-amber-200 bg-amber-50 text-amber-700',
     }
   }
@@ -1459,6 +1496,7 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
         key: 'missing_material',
         label: 'ยังไม่ได้เลือกวัสดุ',
         helper: 'ต้องเลือกวัสดุก่อนอัปเดตราคา',
+        nextAction: 'จับคู่วัสดุอัตโนมัติ หรือค้นหาเอง',
         className: 'border-red-200 bg-red-50 text-red-700',
       }
     }
@@ -1466,7 +1504,8 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
       return {
         key: 'missing_uom',
         label: 'ยังไม่มีหน่วย',
-        helper: null,
+        helper: 'ต้องมีหน่วยก่อนบันทึกราคา',
+        nextAction: 'เติมหน่วยอัตโนมัติ หรือเลือกหน่วยเอง',
         className: 'border-red-200 bg-red-50 text-red-700',
       }
     }
@@ -1474,7 +1513,8 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
       return {
         key: 'missing_price',
         label: 'ยังไม่มีราคา',
-        helper: null,
+        helper: 'ต้องมีราคา/หน่วยมากกว่า 0',
+        nextAction: 'ใส่ราคา/หน่วย',
         className: 'border-red-200 bg-red-50 text-red-700',
       }
     }
@@ -1482,7 +1522,8 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
       return {
         key: 'ready',
         label: 'พร้อมบันทึก',
-        helper: null,
+        helper: 'ข้อมูลครบและตรวจแล้ว',
+        nextAction: 'กดบันทึกราคาที่พร้อมทั้งหมด',
         className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
       }
     }
@@ -1491,25 +1532,40 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
   return {
     key: 'needs_review',
     label: 'ต้องตรวจสอบ',
-    helper: null,
+    helper: 'ยังไม่ได้เลือก action หรือยังไม่ได้ตรวจรายการ',
+    nextAction: 'เลือก action แล้วกดบันทึกรายการ',
     className: 'border-amber-200 bg-amber-50 text-amber-700',
   }
 }
 
 function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean) {
   const summary = {
+    total: items.length,
     ready: 0,
     needsReview: 0,
     missingMaterial: 0,
     missingUom: 0,
     missingPrice: 0,
+    createMaterialNeeded: 0,
+    ignored: 0,
+    posted: 0,
   }
 
-  if (isPosted) return summary
+  if (isPosted) {
+    summary.posted = items.length
+    return summary
+  }
 
   for (const item of items) {
     const readiness = getReceiptItemReadiness(item)
-    if (readiness.key === 'posted' || readiness.key === 'ignored') continue
+    if (readiness.key === 'posted') {
+      summary.posted += 1
+      continue
+    }
+    if (readiness.key === 'ignored') {
+      summary.ignored += 1
+      continue
+    }
     if (readiness.key === 'ready') {
       summary.ready += 1
     } else if (readiness.key === 'missing_material') {
@@ -1518,12 +1574,76 @@ function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean) 
       summary.missingUom += 1
     } else if (readiness.key === 'missing_price') {
       summary.missingPrice += 1
+    } else if (readiness.key === 'create_material_needed') {
+      summary.createMaterialNeeded += 1
     } else {
       summary.needsReview += 1
     }
   }
 
   return summary
+}
+
+function buildReceiptFlowStatus(
+  receiptStatus: PurchaseReceipt['status'],
+  hasSupplier: boolean,
+  itemCount: number,
+  readiness: ReturnType<typeof buildReadinessSummary>,
+  blockerCount: number,
+) {
+  if (receiptStatus === 'posted') {
+    return {
+      label: 'บันทึกเข้าระบบแล้ว',
+      helper: 'ราคาถูกบันทึกแล้ว รายการนี้ล็อกเพื่อกันบันทึกซ้ำ',
+      nextSteps: [] as string[],
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    }
+  }
+
+  if (itemCount === 0) {
+    return {
+      label: 'ยังไม่มีรายการจากสลิป',
+      helper: 'อ่านสลิปด้วย AI หรือเพิ่มรายการเองก่อนเริ่มตรวจ',
+      nextSteps: ['อ่านสลิปด้วย AI', 'เพิ่มรายการจากสลิป', 'เลือกซัพพลายเออร์ถ้ายังไม่ได้เลือก'],
+      className: 'border-amber-200 bg-amber-50 text-amber-800',
+    }
+  }
+
+  const nextSteps: string[] = []
+  if (!hasSupplier) nextSteps.push('เลือกซัพพลายเออร์ของสลิป')
+  if (readiness.missingMaterial > 0) nextSteps.push(`ผูกวัสดุให้ครบ ${readiness.missingMaterial} รายการ`)
+  if (readiness.createMaterialNeeded > 0) nextSteps.push(`ตรวจ Draft วัสดุใหม่ ${readiness.createMaterialNeeded} รายการ`)
+  if (readiness.missingUom > 0) nextSteps.push(`เติมหน่วย ${readiness.missingUom} รายการ`)
+  if (readiness.missingPrice > 0) nextSteps.push(`ใส่ราคา ${readiness.missingPrice} รายการ`)
+  if (readiness.needsReview > 0) nextSteps.push(`ตรวจ action ที่ค้าง ${readiness.needsReview} รายการ`)
+  if (readiness.ready === 0 && nextSteps.length === 0 && blockerCount > 0) {
+    nextSteps.push('เลือกอย่างน้อยหนึ่งรายการเป็นอัปเดตราคา หรือข้ามรายการที่ไม่ต้องบันทึก')
+  }
+
+  if (readiness.ready > 0 && nextSteps.length > 0) {
+    return {
+      label: `พร้อมบันทึกบางรายการ (${readiness.ready})`,
+      helper: 'กดบันทึกราคาที่พร้อมทั้งหมดได้ ส่วนที่เหลือยังค้างตามขั้นถัดไป',
+      nextSteps,
+      className: 'border-blue-200 bg-blue-50 text-blue-900',
+    }
+  }
+
+  if (readiness.ready > 0 && blockerCount === 0) {
+    return {
+      label: 'พร้อมบันทึกราคาเข้าระบบ',
+      helper: 'ทุกรายการที่ต้องอัปเดตราคามีวัสดุ หน่วย ราคา และผ่านการตรวจแล้ว',
+      nextSteps: [] as string[],
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    }
+  }
+
+  return {
+    label: 'ยังต้องตรวจรายการ',
+    helper: 'ยังมีรายการที่ต้องผูกวัสดุ สร้างวัสดุใหม่ เติมหน่วย หรือใส่ราคา',
+    nextSteps,
+    className: 'border-amber-200 bg-amber-50 text-amber-800',
+  }
 }
 
 function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[]) {
@@ -1539,11 +1659,49 @@ function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[
       if (!item.uom_id) blockers.push(`${label} ต้องมีหน่วยก่อนบันทึก`)
       if (!item.unit_price || item.unit_price <= 0) blockers.push(`${label} ราคา/หน่วยไม่ถูกต้อง`)
       if (getClientReviewStatus(item) !== 'reviewed') blockers.push(`${label} ยังต้องตรวจสอบ`)
+    } else if (action === 'create_material_needed') {
+      blockers.push(`${label} รอสร้างหรืออนุมัติ Draft วัสดุ`)
     } else if (!action || action === 'needs_review') {
       blockers.push(`${label} ยังต้องตรวจสอบ`)
     }
   }
   return blockers
+}
+
+function getReceiptItemMaterialFlow(item: PurchaseReceiptItem) {
+  if (item.material_id) {
+    const code = item.material?.material_code
+    return {
+      label: code ? `ผูกวัสดุแล้ว: ${code}` : 'ผูกวัสดุแล้ว',
+      className: 'text-emerald-700',
+    }
+  }
+
+  if (hasPendingMaterialDraft(item)) {
+    return {
+      label: 'มี Draft วัสดุรออนุมัติ',
+      className: 'text-amber-700',
+    }
+  }
+
+  if (item.suggested_material_id || (item.match_candidates?.length ?? 0) > 0) {
+    return {
+      label: 'พบวัสดุใกล้เคียง ให้เลือกก่อนบันทึกราคา',
+      className: 'text-blue-700',
+    }
+  }
+
+  if (getReceiptItemAction(item) === 'ignore') {
+    return {
+      label: 'รายการนี้ถูกข้าม ไม่ต้องผูกวัสดุ',
+      className: 'text-slate-500',
+    }
+  }
+
+  return {
+    label: 'ยังไม่ผูกวัสดุ',
+    className: 'text-red-700',
+  }
 }
 
 function hasPendingMaterialDraft(item: PurchaseReceiptItem) {
