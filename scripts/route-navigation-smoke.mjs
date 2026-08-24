@@ -201,6 +201,41 @@ if (receiptImportRoute.includes('redirectTo: receiptId ? getReceiptRedirectPath(
   fail('receipt import API redirect shape is not deterministic')
 }
 
+const materialRoute = read('app/api/materials/[id]/route.ts')
+const materialDeleteMigration = read('supabase/migrations/20260824_material_delete_atomic.sql')
+if (materialRoute.includes("supabase.rpc('delete_material_atomic'")) {
+  pass('material delete route uses the atomic database RPC')
+} else {
+  fail('material delete route does not use the atomic database RPC')
+}
+if (!materialRoute.includes('.delete()')) {
+  pass('material route does not issue direct table deletes')
+} else {
+  fail('material route still issues a direct table delete')
+}
+if (
+  materialDeleteMigration.includes('CREATE OR REPLACE FUNCTION public.delete_material_atomic')
+  && materialDeleteMigration.includes('REVOKE DELETE ON TABLE public.mat_master FROM authenticated')
+) {
+  pass('material delete migration defines and enforces the RPC boundary')
+} else {
+  fail('material delete migration is missing the function or direct-delete revoke')
+}
+const atomicDeleteRequirements = [
+  'DELETE FROM public.mat_price_base',
+  'DELETE FROM public.mat_supplier_map',
+  'DELETE FROM public.mat_alias',
+  'DELETE FROM public.mat_uom_conv',
+  'DELETE FROM public.mat_master',
+  'WHEN foreign_key_violation',
+  'INSERT INTO public.mat_audit_log',
+]
+if (atomicDeleteRequirements.every((snippet) => materialDeleteMigration.includes(snippet))) {
+  pass('material delete RPC contains child deletes, rollback handling, and atomic audit')
+} else {
+  fail('material delete RPC is missing a required transactional operation')
+}
+
 function getOpeningTags(source, tagName) {
   const tags = []
   const token = `<${tagName}`
