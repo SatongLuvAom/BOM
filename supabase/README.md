@@ -51,6 +51,38 @@ These files are kept as module references and historical split scripts:
 5. NOTIFY pgrst, 'reload schema'; if Supabase schema cache is stale
 ```
 
+## Schema Lock and Current Application Order
+
+Before deploying the current application, run [schema_audit.sql](D:/Program/BOQ/supabase/schema_audit.sql) in the Supabase SQL Editor and confirm that every required object and column is present. The audit is read-only and returns a `public_schema_signature` that should be saved with the deployment record.
+
+For a fresh database using the current application, apply the additive SQL in this order:
+
+```text
+1. supabase/setup_complete.sql
+2. supabase/migrations/20260504_production_core_hardening.sql
+3. sql/phase2a_material_master_hardening.sql
+4. sql/phase2a9_core_foundation_hardening.sql
+5. sql/phase2a10_material_code_standard_v1.sql
+6. sql/phase2a11_material_duplicate_detection.sql
+7. sql/phase2a11_material_duplicate_detection_rls_fix.sql
+8. sql/phase2a12_material_types_rls_fix.sql
+9. sql/phase2a12_seed_material_types_workshop.sql, optional seed
+10. sql/phase2a12_material_types_thai_labels.sql
+11. sql/phase2a12_material_master_performance_indexes.sql
+12. sql/phase2a13_material_master_bottleneck_indexes.sql
+13. sql/phase2a14_material_latest_price_view_performance.sql
+14. sql/phase2b_receipt_import_v1.sql, when Receipt Import is enabled
+15. sql/phase2b2_receipt_ai_gemini.sql, when Receipt AI/OCR is enabled
+16. sql/phase2b4_receipt_bulk_post_ready_items.sql, when receipt posting is enabled
+17. sql/phase2b5_receipt_material_candidates.sql, when candidate review is enabled
+18. sql/phase2b7_material_code_rpc_rls_fix.sql
+19. sql/phase2b8_receipt_candidate_atomic_approval_and_repair.sql
+20. supabase/migrations/20260824_material_delete_atomic.sql
+21. Run supabase/schema_audit.sql again
+```
+
+Do not combine this path with `sql/phase1_single_user_production.sql` or `sql/phase1_single_user_production_core_only.sql`; those are alternative historical hardening paths. Keep the database password out of the repository. `supabase db query --linked` requires a locally supplied `SUPABASE_DB_PASSWORD`, or the audit can be pasted into the Supabase SQL Editor.
+
 ## RLS Policy Baseline
 
 - `anon` has no direct table access.

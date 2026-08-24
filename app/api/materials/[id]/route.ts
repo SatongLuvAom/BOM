@@ -11,6 +11,16 @@ import { resolveMaterialReference } from '@/lib/server/material-resolver'
 import { inferSpecKeyFromMaterialText, sanitizeSpecKey } from '@/lib/material-code'
 
 type Params = { params: Promise<{ id: string }> }
+type AtomicMaterialDeleteResult = {
+  deleted?: boolean
+  reason?: 'NOT_FOUND' | 'RELATION_IN_USE'
+  constraint?: string | null
+  counts?: {
+    bom_items?: number
+    boq_items?: number
+  }
+}
+
 const MATERIAL_WRITE_SELECT = `
   id, material_id, material_code, cat_id, category_id, material_type_id, code_spec_key,
   mat_name_th, mat_name_en, normalized_name, spec, brand, model, base_uom, base_uom_id,
@@ -294,101 +304,37 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return notFoundError('Material not found')
   }
 
-  const [{ count: bomCount }, { count: boqCount }] = await Promise.all([
-    supabase
-      .from('bom_item')
-      .select('material_id', { count: 'exact', head: true })
-      .eq('material_id', resolved.material_id)
-      .eq('is_deleted', false),
-    supabase
-      .from('boq_item')
-      .select('material_id', { count: 'exact', head: true })
-      .eq('material_id', resolved.material_id)
-      .eq('is_deleted', false),
-  ])
-
-  if ((bomCount ?? 0) > 0 || (boqCount ?? 0) > 0) {
-    return relationInUseError(
-      'Cannot delete this material because it is used in BOM or BOQ.',
-      { bom_items: bomCount ?? 0, boq_items: boqCount ?? 0 },
-    )
-  }
-
-  const { data: before } = await supabase
-    .from('mat_master')
-    .select('*')
-    .eq('material_id', resolved.material_id)
-    .eq('is_deleted', false)
-    .single()
-
-  if (!before) {
-    return notFoundError('Material not found')
-  }
-
-  const [pricesBefore, mapsBefore, aliasesBefore, conversionsBefore] = await Promise.all([
-    supabase.from('mat_price_base').select('*').eq('material_id', resolved.material_id),
-    supabase.from('mat_supplier_map').select('*').eq('material_id', resolved.material_id),
-    supabase.from('mat_alias').select('*').eq('material_id', resolved.material_id),
-    supabase.from('mat_uom_conv').select('*').eq('material_id', resolved.material_id),
-  ])
-
-  const { error: priceErr } = await supabase
-    .from('mat_price_base')
-    .delete()
-    .eq('material_id', resolved.material_id)
-
-  if (priceErr) {
-    return databaseError('Could not delete related material prices', { message: priceErr.message })
-  }
-
-  const { error: mapErr } = await supabase
-    .from('mat_supplier_map')
-    .delete()
-    .eq('material_id', resolved.material_id)
-
-  if (mapErr) {
-    return databaseError('Could not delete related supplier mappings', { message: mapErr.message })
-  }
-
-  const { error: aliasErr } = await supabase
-    .from('mat_alias')
-    .delete()
-    .eq('material_id', resolved.material_id)
-
-  if (aliasErr) {
-    return databaseError('Could not delete related aliases', { message: aliasErr.message })
-  }
-
-  const { error: convErr } = await supabase
-    .from('mat_uom_conv')
-    .delete()
-    .eq('material_id', resolved.material_id)
-
-  if (convErr) {
-    return databaseError('Could not delete related UOM conversions', { message: convErr.message })
-  }
-
-  const { error } = await supabase
-    .from('mat_master')
-    .delete()
-    .eq('material_id', resolved.material_id)
+  const { data, error } = await supabase.rpc('delete_material_atomic', {
+    p_material_id: resolved.material_id,
+  })
 
   if (error) {
-    return databaseError('Could not delete material', { message: error.message })
+    return databaseError('Could not delete material atomically', {
+      code: error.code,
+      message: error.message,
+    })
   }
 
-  await writeAuditLog({
-    entityType: 'mat_master',
-    entityKey: resolved.material_code ?? resolved.material_id,
-    action: 'DELETE',
-    payload: {
-      material: before,
-      aliases: aliasesBefore.data ?? [],
-      supplier_mappings: mapsBefore.data ?? [],
-      price_history: pricesBefore.data ?? [],
-      uom_conversions: conversionsBefore.data ?? [],
-    },
-  })
+  const result = data as AtomicMaterialDeleteResult | null
+
+  if (!result?.deleted) {
+    if (result?.reason === 'NOT_FOUND') {
+      return notFoundError('Material not found')
+    }
+
+    if (result?.reason === 'RELATION_IN_USE') {
+      return relationInUseError(
+        'Cannot delete this material because it is referenced by another record.',
+        {
+          bom_items: result.counts?.bom_items ?? 0,
+          boq_items: result.counts?.boq_items ?? 0,
+          constraint: result.constraint ?? null,
+        },
+      )
+    }
+
+    return databaseError('Atomic material delete returned an invalid result')
+  }
 
   return NextResponse.json({ message: 'Material deleted' })
 }
