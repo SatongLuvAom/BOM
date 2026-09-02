@@ -25,18 +25,9 @@ const routeFiles = [
   ['BOM create', ['app/(mat)/bom/create/page.tsx', 'app/(mat)/bom/new/page.tsx']],
   ['BOM detail', ['app/(mat)/bom/[id]/page.tsx']],
   ['BOM edit', ['app/(mat)/bom/[id]/edit/page.tsx']],
-  ['BOQ list', ['app/(mat)/boq/page.tsx']],
-  ['BOQ create', ['app/(mat)/boq/create/page.tsx', 'app/(mat)/boq/new/page.tsx']],
-  ['BOQ detail', ['app/(mat)/boq/[id]/page.tsx']],
-  ['BOQ edit', ['app/(mat)/boq/[id]/edit/page.tsx']],
-  ['Customers list', ['app/(mat)/customers/page.tsx']],
-  ['Customers create', ['app/(mat)/customers/create/page.tsx', 'app/(mat)/customers/new/page.tsx']],
-  ['Customers detail', ['app/(mat)/customers/[id]/page.tsx']],
-  ['Customers edit', ['app/(mat)/customers/[id]/edit/page.tsx']],
   ['Categories list', ['app/(mat)/categories/page.tsx']],
   ['UOM list', ['app/(mat)/uom/page.tsx']],
   ['Prices list', ['app/(mat)/prices/page.tsx']],
-  ['Reports list', ['app/(mat)/reports/page.tsx']],
   ['Settings', ['app/(mat)/settings/material-code/page.tsx', 'app/(mat)/settings/setup/page.tsx']],
   ['System status', ['app/(mat)/settings/system/page.tsx']],
 ]
@@ -44,7 +35,6 @@ const routeFiles = [
 const scanRoots = [
   'app/(mat)',
   'components/mat',
-  'components/boq',
   'components/bom',
   'components/receipts',
   'app/api/receipts',
@@ -119,8 +109,6 @@ const requiredRouteSnippets = [
   "detailRoute('/receipts', id)",
   "list: () => '/suppliers'",
   "list: () => '/bom'",
-  "list: () => '/boq'",
-  "list: () => '/customers'",
 ]
 
 for (const snippet of requiredRouteSnippets) {
@@ -203,6 +191,9 @@ if (receiptImportRoute.includes('redirectTo: receiptId ? getReceiptRedirectPath(
 
 const materialRoute = read('app/api/materials/[id]/route.ts')
 const materialDeleteMigration = read('supabase/migrations/20260824_material_delete_atomic.sql')
+const materialListMigration = read('supabase/migrations/20260824_material_list_query_rpc.sql')
+const materialListPageMigration = read('supabase/migrations/20260902_material_list_page_payload.sql')
+const materialsPage = read('app/(mat)/materials/page.tsx')
 if (materialRoute.includes("supabase.rpc('delete_material_atomic'")) {
   pass('material delete route uses the atomic database RPC')
 } else {
@@ -234,6 +225,166 @@ if (atomicDeleteRequirements.every((snippet) => materialDeleteMigration.includes
   pass('material delete RPC contains child deletes, rollback handling, and atomic audit')
 } else {
   fail('material delete RPC is missing a required transactional operation')
+}
+
+if (
+  materialsPage.includes("supabase.rpc('list_materials_page'")
+  && !materialsPage.includes('IN_MEMORY_SORT_LIMIT')
+  && !materialsPage.includes('resolveMaterialSearchMatches')
+  && !materialsPage.includes('sortMaterialRows(')
+) {
+  pass('materials list delegates search, filters, sorting, and pagination to PostgreSQL')
+} else {
+  fail('materials list still performs full-set search or sorting in Next.js')
+}
+
+const materialListPageRpcRequirements = [
+  'CREATE OR REPLACE FUNCTION public.list_materials_page',
+  'SELECT public.list_materials(',
+  'SECURITY INVOKER',
+  "'latest_price'",
+  "'quality_context'",
+  'GRANT EXECUTE ON FUNCTION public.list_materials_page',
+]
+if (materialListPageRpcRequirements.every((snippet) => materialListPageMigration.includes(snippet))) {
+  pass('material list page RPC includes latest price and quality inputs in the paginated payload')
+} else {
+  fail('material list page RPC is missing a required payload or security contract')
+}
+const materialListRpcRequirements = [
+  'CREATE OR REPLACE FUNCTION public.list_materials',
+  'SECURITY INVOKER',
+  "'total', (SELECT count(*) FROM filtered)",
+  'p_supplier_id text DEFAULT NULL',
+  'p_has_price text DEFAULT NULL',
+  'p_stale_price text DEFAULT NULL',
+  'p_sort_by text DEFAULT NULL',
+  'row_number() OVER',
+  'GRANT EXECUTE ON FUNCTION public.list_materials',
+]
+if (materialListRpcRequirements.every((snippet) => materialListMigration.includes(snippet))) {
+  pass('material list RPC preserves RLS and implements server-side filters, sorting, count, and pagination')
+} else {
+  fail('material list RPC is missing a required query or security contract')
+}
+
+const i18nClient = read('lib/i18n/client.tsx')
+const enDictionary = read('lib/i18n/dictionaries/en.ts')
+const thDictionary = read('lib/i18n/dictionaries/th.ts')
+const materialList = read('components/mat/MaterialList.tsx')
+const materialFilterChips = read('components/mat/FilterChips.tsx')
+const pagination = read('components/ui/Pagination.tsx')
+const sidebar = read('components/layout/Sidebar.tsx')
+const materialExportRoute = read('app/api/materials/export/route.ts')
+const materialExportHelper = read('lib/server/material-export.ts')
+if (
+  materialList.includes('<Link href={href} prefetch={false}')
+  && materialList.includes('<Link href={detailHref ?? routes.materials.list()} prefetch={false}')
+) {
+  pass('material row detail and edit links disable automatic route prefetch')
+} else {
+  fail('material row detail or edit links still allow automatic route prefetch')
+}
+if (
+  !i18nClient.includes('localStorage.getItem(localeCookieName)')
+  && i18nClient.includes('useState<Locale>(initialLocale)')
+  && i18nClient.includes('setLocaleState(nextLocale)')
+  && i18nClient.includes('router.refresh()')
+) {
+  pass('i18n hydration starts from the server cookie and synchronizes explicit locale changes')
+} else {
+  fail('i18n hydration can diverge from the server cookie during a locale change')
+}
+if (read('app/(mat)/layout.tsx').includes('<I18nProvider key={locale} initialLocale={locale}>')) {
+  pass('i18n provider remounts when the server locale changes')
+} else {
+  fail('i18n provider can preserve stale state across a server locale change')
+}
+if (
+  materialsPage.includes("const { t } = await getDictionary()")
+  && materialsPage.includes("{t('materialsPage.title')}")
+  && enDictionary.includes("materialsPage: {")
+  && thDictionary.includes("materialsPage: {")
+) {
+  pass('materials page renders explicit server translations before hydration')
+} else {
+  fail('materials page leaves server labels to DOM mutation during hydration')
+}
+if (
+  i18nClient.includes("const managedSelector = '[data-i18n-managed]'")
+  && i18nClient.includes('NodeFilter.FILTER_REJECT')
+  && materialsPage.includes('data-i18n-managed="true"')
+) {
+  pass('legacy i18n rejects the React-managed materials subtree during hydration')
+} else {
+  fail('legacy i18n can mutate the materials subtree during hydration')
+}
+const explicitMaterialsClientTranslations = [
+  ['material list', materialList, "t('materialsPage.list.noMaterials')"],
+  ['material filters', materialFilterChips, "t('materialsPage.filters.clearAll')"],
+  ['shared pagination', pagination, "t('common.pagination.summary'"],
+]
+for (const [label, source, translationCall] of explicitMaterialsClientTranslations) {
+  if (source.includes("from '@/lib/i18n/client'") && source.includes(translationCall)) {
+    pass(`${label} uses explicit React translations`)
+  } else {
+    fail(`${label} still depends on legacy DOM translation`)
+  }
+}
+
+const materialExportHeaders = [
+  'Material_Code',
+  'Category',
+  'Material_Name',
+  'Thickness_mm',
+  'Width_m',
+  'Length_m',
+  'Purchase_Unit',
+  'Supplier_ID',
+  'Current_Rate',
+  'Active',
+  'Notes',
+]
+if (
+  materialExportHeaders.every((header) => materialExportRoute.includes(`'${header}'`))
+  && materialExportRoute.includes('fetchLatestPriceMap(supabase)')
+  && materialExportRoute.includes('parseMaterialDimensions(')
+  && materialExportHelper.includes("(?:ft|feet|foot|ฟุต)")
+) {
+  pass('materials CSV follows the requested purchasing-table contract')
+} else {
+  fail('materials CSV contract or current-price mapping is incomplete')
+}
+
+const retiredFeatureRoots = [
+  'app/(mat)/boq',
+  'app/(mat)/customers',
+  'app/(mat)/templates',
+  'app/(mat)/reports',
+  'app/api/boq',
+  'app/api/customers',
+  'app/api/templates',
+  'app/api/reports',
+  'components/boq',
+  'components/customer',
+  'components/templates',
+  'components/reports',
+]
+const retiredFeatureFiles = retiredFeatureRoots.flatMap((dir) => listFiles(dir))
+if (retiredFeatureFiles.length === 0) {
+  pass('retired BOQ, customer, template, and report source trees are absent')
+} else {
+  fail(`retired feature source remains: ${retiredFeatureFiles.join(', ')}`)
+}
+
+const retiredNavigation = ["href: '/boq'", "href: '/customers'", "href: '/templates'", "href: '/reports'"]
+if (
+  retiredNavigation.every((snippet) => !sidebar.includes(snippet))
+  && !sidebar.includes("t('nav.boqProjects')")
+) {
+  pass('sidebar omits retired feature navigation')
+} else {
+  fail('sidebar still exposes retired feature navigation')
 }
 
 function getOpeningTags(source, tagName) {
