@@ -138,6 +138,7 @@ expected_functions(function_name, phase) AS (
     ('fn_apply_material_code_change_v1', 'material-code'),
     ('fn_apply_material_code_cleanup_v1', 'material-code'),
     ('delete_material_atomic', 'material-delete'),
+    ('list_materials', 'material-list'),
     ('fn_post_purchase_receipt_to_price_history', 'receipt'),
     ('fn_post_purchase_receipt_ready_items', 'receipt'),
     ('approve_receipt_material_candidate_atomic', 'receipt-candidate'),
@@ -267,6 +268,61 @@ material_delete_security_checks AS (
     NOT has_table_privilege('authenticated', 'public.mat_master', 'DELETE'),
     'expected authenticated direct DELETE privilege to be revoked'::text
 ),
+material_list_security_checks AS (
+  SELECT
+    'security'::text AS check_group,
+    'material-list'::text AS phase,
+    'public'::text AS schema_name,
+    'list_materials_security'::text AS object_name,
+    EXISTS (
+      SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public'
+        AND p.proname = 'list_materials'
+        AND p.prosecdef = false
+        AND EXISTS (
+          SELECT 1
+          FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) AS config(value)
+          WHERE config.value LIKE 'search_path=%public%pg_temp%'
+        )
+    ) AS present,
+    'expected SECURITY INVOKER with fixed search_path=public,pg_temp'::text AS details
+
+  UNION ALL
+
+  SELECT
+    'security'::text,
+    'material-list'::text,
+    'public'::text,
+    'list_materials_execute_grant'::text,
+    coalesce(
+      has_function_privilege(
+        'authenticated',
+        to_regprocedure('public.list_materials(text,text,text,text,text,text,text,text,integer,integer)'),
+        'EXECUTE'
+      ),
+      false
+    ),
+    'expected authenticated EXECUTE grant'::text
+
+  UNION ALL
+
+  SELECT
+    'security'::text,
+    'material-list'::text,
+    'public'::text,
+    'list_materials_anon_execute_revoked'::text,
+    NOT coalesce(
+      has_function_privilege(
+        'anon',
+        to_regprocedure('public.list_materials(text,text,text,text,text,text,text,text,integer,integer)'),
+        'EXECUTE'
+      ),
+      false
+    ),
+    'expected anon EXECUTE privilege to be revoked'::text
+),
 bucket_checks AS (
   SELECT
     'storage'::text AS check_group,
@@ -316,6 +372,7 @@ all_checks AS (
   UNION ALL SELECT * FROM function_checks
   UNION ALL SELECT * FROM rls_checks
   UNION ALL SELECT * FROM material_delete_security_checks
+  UNION ALL SELECT * FROM material_list_security_checks
   UNION ALL SELECT * FROM bucket_checks
   UNION ALL SELECT * FROM summary_checks
 )
