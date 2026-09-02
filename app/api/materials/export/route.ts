@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOwnerApi } from '@/lib/auth/owner'
 import { createClient } from '@/lib/supabase/server'
 import { createAuditLog } from '@/lib/server-utils'
+import { csvResponse, datedCsvFilename, toCsv } from '@/lib/server/csv'
+import { exportMaterialName, parseMaterialDimensions } from '@/lib/server/material-export'
+import { fetchLatestPriceMap } from '@/lib/server/material-quality-data'
 import { normalizeSearchTerm } from '@/lib/supabase/filters'
 import { resolveMaterialSearchMatches, sortRowsBySearchRank } from '@/lib/server/material-search'
 
@@ -18,6 +21,14 @@ export async function GET(req: NextRequest) {
   const supplierId = sp.get('supplier_id') ?? ''
 
   const supabase = await createClient()
+  let latestPrices: Awaited<ReturnType<typeof fetchLatestPriceMap>>
+
+  try {
+    latestPrices = await fetchLatestPriceMap(supabase)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown latest-price error'
+    return NextResponse.json({ error: `Could not load current material prices: ${message}` }, { status: 500 })
+  }
 
   let rankedSearchIds: string[] = []
   let query = supabase
@@ -46,11 +57,7 @@ export async function GET(req: NextRequest) {
     query = query.in('material_id', supplierMaps?.map((row) => row.material_id) ?? ['__none__'])
   }
   if (hasPrice || stalePrice) {
-    const { data: latestRows } = await supabase
-      .from('material_latest_prices')
-      .select('material_id, is_stale')
-
-    const latestByMaterial = new Map((latestRows ?? []).map((row) => [row.material_id, row]))
+    const latestByMaterial = new Map(Object.values(latestPrices).map((row) => [row.material_id, row]))
     let ids = Array.from(latestByMaterial.keys())
 
     if (hasPrice === 'missing') {
@@ -83,49 +90,39 @@ export async function GET(req: NextRequest) {
   })
 
   const headers = [
-    'material_code',
-    'legacy_material_id',
-    'ชื่อวัสดุ (TH)',
-    'ชื่อวัสดุ (EN)',
-    'สเปก',
-    'ยี่ห้อ',
-    'รุ่น',
-    'หน่วยหลัก',
-    'หมวดหมู่',
-    'สถานะ',
-    'หมายเหตุ',
-    'อัปเดตล่าสุด',
+    'Material_Code',
+    'Category',
+    'Material_Name',
+    'Thickness_mm',
+    'Width_m',
+    'Length_m',
+    'Purchase_Unit',
+    'Supplier_ID',
+    'Current_Rate',
+    'Active',
+    'Notes',
   ]
 
-  const rows = exportRows.map((m: any) => [
-    m.material_code ?? m.material_id,
-    m.material_id,
-    m.mat_name_th ?? '',
-    m.mat_name_en ?? '',
-    m.spec ?? '',
-    m.brand ?? '',
-    m.model ?? '',
-    m.base_uom ?? '',
-    m.category?.cat_name_th ?? '',
-    m.status ?? '',
-    m.note ?? '',
-    m.updated_at ? new Date(m.updated_at).toISOString().slice(0, 10) : '',
-  ])
-
-  const csv = [headers, ...rows]
-    .map((row) =>
-      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','),
+  const rows = exportRows.map((material: any) => {
+    const price = latestPrices[material.material_id]
+    const dimensions = parseMaterialDimensions(
+      [material.spec, material.mat_name_en, material.mat_name_th].filter(Boolean).join(' '),
     )
-    .join('\r\n')
 
-  const bom = '\uFEFF' // UTF-8 BOM for Excel Thai text support
-  const filename = `materials_${new Date().toISOString().slice(0, 10)}.csv`
-
-  return new NextResponse(bom + csv, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${filename}"`,
-    },
+    return [
+      material.material_code ?? material.material_id,
+      material.category?.cat_code ?? material.category?.cat_name_th ?? '',
+      exportMaterialName(material),
+      dimensions.thicknessMm,
+      dimensions.widthM,
+      dimensions.lengthM,
+      price?.price_uom ?? material.base_uom ?? '',
+      price?.supplier_id ?? '',
+      price ? price.unit_price : '',
+      material.status === 'ACTIVE' ? 'YES' : 'NO',
+      material.note ?? '',
+    ]
   })
+
+  return csvResponse(datedCsvFilename('materials'), toCsv(headers, rows))
 }
