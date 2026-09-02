@@ -61,7 +61,6 @@ export async function getSystemQaGroups(supabase: SupabaseLike): Promise<SystemQ
     supplierMapsRes,
     pricesRes,
     bomItemsRes,
-    boqItemsRes,
   ] = await Promise.all([
     supabase
       .from('mat_master')
@@ -88,11 +87,6 @@ export async function getSystemQaGroups(supabase: SupabaseLike): Promise<SystemQ
       .select('item_id, bom_id, material_id, item_name, qty_per_unit')
       .eq('is_deleted', false)
       .limit(30000),
-    supabase
-      .from('boq_item')
-      .select('item_id, project_id, item_type, material_id, item_name, unit_price, estimated_unit_price, final_unit_price, price_snapshot_at, price_source')
-      .eq('is_deleted', false)
-      .limit(50000),
   ])
 
   const loadErrors = [
@@ -101,7 +95,6 @@ export async function getSystemQaGroups(supabase: SupabaseLike): Promise<SystemQ
     ['supplier mappings', supplierMapsRes.error],
     ['price history', pricesRes.error],
     ['BOM items', bomItemsRes.error],
-    ['BOQ items', boqItemsRes.error],
   ].filter(([, error]) => error)
 
   if (loadErrors.length > 0) {
@@ -127,7 +120,6 @@ export async function getSystemQaGroups(supabase: SupabaseLike): Promise<SystemQ
   const supplierMaps = (supplierMapsRes.data ?? []) as any[]
   const prices = (pricesRes.data ?? []) as any[]
   const bomItems = (bomItemsRes.data ?? []) as any[]
-  const boqItems = (boqItemsRes.data ?? []) as any[]
 
   const duplicateMaterialCodes = Array.from(
     groupBy(materials, (row) => compact(row.material_code).toUpperCase()).entries(),
@@ -244,24 +236,6 @@ export async function getSystemQaGroups(supabase: SupabaseLike): Promise<SystemQ
       ),
     )
 
-  const boqItemsMissingSnapshotPrice = boqItems
-    .filter((row) => {
-      if (row.item_type !== 'MAT' || !row.material_id) return false
-      const unitPrice = numberValue(row.unit_price) ?? 0
-      const estimated = numberValue(row.estimated_unit_price) ?? 0
-      const final = numberValue(row.final_unit_price) ?? 0
-      return !row.price_snapshot_at && unitPrice <= 0 && estimated <= 0 && final <= 0
-    })
-    .map((row) =>
-      issue(
-        `boq-item-missing-snapshot-${row.item_id}`,
-        row.item_name || row.item_id,
-        `BOQ ${row.project_id} material item has no snapshot price`,
-        'warning',
-        `/boq/${row.project_id}`,
-      ),
-    )
-
   return [
     {
       key: 'duplicate-material-codes',
@@ -310,12 +284,6 @@ export async function getSystemQaGroups(supabase: SupabaseLike): Promise<SystemQ
       title: 'BOM items with invalid qty',
       description: 'BOM rows where qty_per_unit is missing or not greater than 0.',
       issues: limitIssues(bomItemsInvalidQty),
-    },
-    {
-      key: 'boq-items-missing-snapshot-price',
-      title: 'BOQ items missing snapshot price',
-      description: 'Material BOQ rows that do not appear to have a price snapshot.',
-      issues: limitIssues(boqItemsMissingSnapshotPrice),
     },
   ]
 }

@@ -44,24 +44,6 @@ export const routes = {
       return detail ? `${detail}/edit` : null
     },
   },
-  boq: {
-    list: () => '/boq',
-    create: () => '/boq/create',
-    detail: (id: unknown) => detailRoute('/boq', id),
-    edit: (id: unknown) => {
-      const detail = detailRoute('/boq', id)
-      return detail ? `${detail}/edit` : null
-    },
-  },
-  customers: {
-    list: () => '/customers',
-    create: () => '/customers/create',
-    detail: (id: unknown) => detailRoute('/customers', id),
-    edit: (id: unknown) => {
-      const detail = detailRoute('/customers', id)
-      return detail ? `${detail}/edit` : null
-    },
-  },
   categories: {
     list: () => '/categories',
     create: () => '/categories/new',

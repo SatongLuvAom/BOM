@@ -77,7 +77,6 @@ function StepCard({ step, index }: { step: SetupStep; index: number }) {
 export default function SetupChecklistPage() {
   const supabaseEnvReady = requiredEnv.every(hasEnv)
   const lineReady = lineEnv.every(hasEnv)
-  const aiReady = hasEnv('ANTHROPIC_API_KEY')
 
   const steps: SetupStep[] = [
     {
@@ -114,7 +113,7 @@ export default function SetupChecklistPage() {
     },
     {
       title: 'Check system health',
-      description: 'Use this page after env and SQL setup to confirm tables, view, storage, and integrations.',
+      description: 'Use this page after env and SQL setup to confirm tables, view, and integrations.',
       href: '/settings/system',
       status: supabaseEnvReady ? 'done' : 'action',
     },
@@ -131,14 +130,6 @@ export default function SetupChecklistPage() {
         : 'Set LINE channel secret and access token, then configure webhook URL in LINE Developers.',
       command: 'https://your-domain.com/api/line/webhook',
       status: lineReady ? 'done' : 'optional',
-    },
-    {
-      title: 'Enable AI price suggestion',
-      description: aiReady
-        ? 'Anthropic API key is available in the current runtime.'
-        : 'Set ANTHROPIC_API_KEY only if /api/boq/[id]/ai-price will be used.',
-      command: 'ANTHROPIC_API_KEY=sk-ant-xxxxx',
-      status: aiReady ? 'done' : 'optional',
     },
     {
       title: 'Deploy to Vercel',

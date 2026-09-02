@@ -134,96 +134,6 @@ export async function GET(req: NextRequest, { params }: Params) {
     )
   }
 
-  if (type === 'boq-projects') {
-    let query = supabase
-      .from('boq_project')
-      .select('project_id, project_name, customer_id, client_name, site_address, project_date, status, note, created_at, updated_at')
-      .order('created_at', { ascending: false })
-      .limit(10000)
-
-    if (!withDeleted) query = query.eq('is_deleted', false)
-
-    const { data, error } = await query
-    if (error) return databaseError('Could not export BOQ projects', { message: error.message })
-
-    await createAuditLog({
-      entityType: 'export',
-      action: 'EXPORT_CSV',
-      newValue: { type, count: data?.length ?? 0, include_deleted: withDeleted },
-      note: `export:${type}`,
-    })
-
-    return csvResponse(
-      datedCsvFilename('boq_projects'),
-      toCsv(
-        ['project_id', 'project_name', 'customer_id', 'client_name', 'site_address', 'project_date', 'status', 'note', 'created_at', 'updated_at'],
-        (data ?? []).map((row) => [
-          row.project_id,
-          row.project_name,
-          row.customer_id,
-          row.client_name,
-          row.site_address,
-          row.project_date,
-          row.status,
-          row.note,
-          row.created_at,
-          row.updated_at,
-        ]),
-      ),
-    )
-  }
-
-  if (type === 'boq-items') {
-    let query = supabase
-      .from('boq_item')
-      .select('item_id, project_id, seq, item_type, material_id, item_name, spec, uom, qty, waste_pct, final_qty, unit_price, estimated_unit_price, final_unit_price, total_price, price_source, supplier_id, currency_code, note, created_at, updated_at')
-      .order('project_id', { ascending: false })
-      .order('seq', { ascending: true })
-      .limit(20000)
-
-    if (!withDeleted) query = query.eq('is_deleted', false)
-
-    const { data, error } = await query
-    if (error) return databaseError('Could not export BOQ items', { message: error.message })
-
-    await createAuditLog({
-      entityType: 'export',
-      action: 'EXPORT_CSV',
-      newValue: { type, count: data?.length ?? 0, include_deleted: withDeleted },
-      note: `export:${type}`,
-    })
-
-    return csvResponse(
-      datedCsvFilename('boq_items'),
-      toCsv(
-        ['item_id', 'project_id', 'seq', 'item_type', 'material_id', 'item_name', 'spec', 'uom', 'qty', 'waste_pct', 'final_qty', 'unit_price', 'estimated_unit_price', 'final_unit_price', 'total_price', 'price_source', 'supplier_id', 'currency_code', 'note', 'created_at', 'updated_at'],
-        (data ?? []).map((row) => [
-          row.item_id,
-          row.project_id,
-          row.seq,
-          row.item_type,
-          row.material_id,
-          row.item_name,
-          row.spec,
-          row.uom,
-          row.qty,
-          row.waste_pct,
-          row.final_qty,
-          row.unit_price,
-          row.estimated_unit_price,
-          row.final_unit_price,
-          row.total_price,
-          row.price_source,
-          row.supplier_id,
-          row.currency_code,
-          row.note,
-          row.created_at,
-          row.updated_at,
-        ]),
-      ),
-    )
-  }
-
   if (type === 'bom-templates') {
     let query = supabase
       .from('bom_template')
@@ -313,8 +223,6 @@ export async function GET(req: NextRequest, { params }: Params) {
       conversionsRes,
       bomTemplatesRes,
       bomItemsRes,
-      boqProjectsRes,
-      boqItemsRes,
     ] = await Promise.all([
       supabase.from('mat_category').select('cat_id, id, cat_code, cat_name_th, cat_name_en, parent_cat_id, is_active, sort_order, updated_at').order('cat_code').limit(10000),
       supabase.from('mat_uom').select('uom_code, id, uom_name_th, uom_name_en, is_active, updated_at').order('uom_code').limit(10000),
@@ -326,8 +234,6 @@ export async function GET(req: NextRequest, { params }: Params) {
       supabase.from('mat_uom_conv').select('id, material_id, material_uuid, from_uom, from_uom_id, to_uom, to_uom_id, factor, formula_note, updated_at').eq('is_deleted', false).order('material_id').limit(20000),
       supabase.from('bom_template').select('bom_id, id, bom_name, bom_category, unit, description, created_at, updated_at').eq('is_deleted', false).order('bom_name').limit(10000),
       supabase.from('bom_item').select('item_id, id, bom_id, seq, item_type, material_id, item_name, uom, qty_per_unit, waste_pct, note').eq('is_deleted', false).order('bom_id').order('seq').limit(30000),
-      supabase.from('boq_project').select('project_id, id, project_name, customer_id, client_name, site_address, project_date, status, note, created_at, updated_at').eq('is_deleted', false).order('project_date', { ascending: false }).limit(10000),
-      supabase.from('boq_item').select('item_id, id, project_id, seq, item_type, material_id, item_name, spec, uom, qty, waste_pct, final_qty, unit_price, estimated_unit_price, final_unit_price, total_price, price_source, price_snapshot_at, supplier_id, currency_code, note, created_at, updated_at').eq('is_deleted', false).order('project_id').order('seq').limit(50000),
     ])
 
     const failed = [
@@ -341,8 +247,6 @@ export async function GET(req: NextRequest, { params }: Params) {
       ['uom conversions', conversionsRes.error],
       ['bom templates', bomTemplatesRes.error],
       ['bom items', bomItemsRes.error],
-      ['boq projects', boqProjectsRes.error],
-      ['boq items', boqItemsRes.error],
     ].find(([, error]) => error)
 
     if (failed) {
@@ -401,16 +305,6 @@ export async function GET(req: NextRequest, { params }: Params) {
         ['item_id', 'uuid', 'bom_id', 'seq', 'item_type', 'material_id', 'item_name', 'uom', 'qty_per_unit', 'waste_pct', 'note'],
         (bomItemsRes.data ?? []).map((row) => [row.item_id, row.id, row.bom_id, row.seq, row.item_type, row.material_id, row.item_name, row.uom, row.qty_per_unit, row.waste_pct, row.note]),
       ),
-      csvFile(
-        'boq_projects.csv',
-        ['project_id', 'uuid', 'project_name', 'customer_id', 'client_name', 'site_address', 'project_date', 'status', 'note', 'created_at', 'updated_at'],
-        (boqProjectsRes.data ?? []).map((row) => [row.project_id, row.id, row.project_name, row.customer_id, row.client_name, row.site_address, row.project_date, row.status, row.note, row.created_at, row.updated_at]),
-      ),
-      csvFile(
-        'boq_items.csv',
-        ['item_id', 'uuid', 'project_id', 'seq', 'item_type', 'material_id', 'item_name', 'spec', 'uom', 'qty', 'waste_pct', 'final_qty', 'unit_price', 'estimated_unit_price', 'final_unit_price', 'total_price', 'price_source', 'price_snapshot_at', 'supplier_id', 'currency_code', 'note', 'created_at', 'updated_at'],
-        (boqItemsRes.data ?? []).map((row) => [row.item_id, row.id, row.project_id, row.seq, row.item_type, row.material_id, row.item_name, row.spec, row.uom, row.qty, row.waste_pct, row.final_qty, row.unit_price, row.estimated_unit_price, row.final_unit_price, row.total_price, row.price_source, row.price_snapshot_at, row.supplier_id, row.currency_code, row.note, row.created_at, row.updated_at]),
-      ),
     ]
 
     await createAuditLog({
@@ -424,7 +318,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       note: `export:${type}`,
     })
 
-    return zipResponse(`boq_master_data_${date}.zip`, files)
+    return zipResponse(`material_master_data_${date}.zip`, files)
   }
 
   return notFoundError('Unknown export type')

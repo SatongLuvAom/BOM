@@ -24,10 +24,7 @@ type IconName =
   | 'duplicate'
   | 'list'
   | 'users'
-  | 'file'
   | 'receipt'
-  | 'template'
-  | 'chart'
 
 const overviewItems: NavItem[] = [
   { labelKey: 'nav.dashboard', href: '/dashboard', icon: 'dashboard' },
@@ -45,13 +42,6 @@ const matItems: NavItem[] = [
   { labelKey: 'nav.uom', href: '/uom', icon: 'list' },
   { labelKey: 'nav.suppliers', href: '/suppliers', icon: 'users' },
   { labelKey: 'nav.receipts', href: '/receipts', icon: 'receipt' },
-]
-
-const boqItems: NavItem[] = [
-  { labelKey: 'nav.boq', href: '/boq', icon: 'file' },
-  { labelKey: 'nav.customers', href: '/customers', icon: 'users' },
-  { labelKey: 'nav.templates', href: '/templates', icon: 'template' },
-  { labelKey: 'nav.reports', href: '/reports', icon: 'chart' },
 ]
 
 function NavIcon({ name }: { name: IconName }) {
@@ -130,29 +120,10 @@ function NavIcon({ name }: { name: IconName }) {
         <path d="M20 8v6M23 11h-6" />
       </>
     ),
-    file: (
-      <>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <path d="M14 2v6h6" />
-        <path d="M16 13H8M16 17H8" />
-      </>
-    ),
     receipt: (
       <>
         <path d="M4 3v18l2-1.5L8 21l2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5V3z" />
         <path d="M8 7h8M8 11h8M8 15h5" />
-      </>
-    ),
-    template: (
-      <>
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-        <path d="M3 9h18M9 21V9" />
-      </>
-    ),
-    chart: (
-      <>
-        <path d="M3 3v18h18" />
-        <path d="M7 14l4-4 4 4 5-5" />
       </>
     ),
   }
@@ -232,10 +203,6 @@ export function Sidebar() {
           <NavLink key={item.href} item={item} pathname={pathname} />
         ))}
 
-        <SectionLabel label={t('nav.boqProjects')} />
-        {boqItems.map((item) => (
-          <NavLink key={item.href} item={item} pathname={pathname} />
-        ))}
       </nav>
 
       <div className="space-y-2 border-t border-slate-200 p-4">

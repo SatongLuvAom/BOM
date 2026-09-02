@@ -81,29 +81,20 @@ export async function GET(req: NextRequest, { params }: Params) {
   }
 
   if (section === 'usage') {
-    const [bomUsageRes, boqUsageRes] = await Promise.all([
-      supabase
-        .from('bom_item')
-        .select('bom_id, item_name, uom, qty_per_unit, bom_template:bom_template(bom_name)', { count: 'exact' })
-        .eq('material_id', resolved.material_id)
-        .eq('is_deleted', false)
-        .limit(10),
-      supabase
-        .from('boq_item')
-        .select('project_id, item_name, uom, qty, final_unit_price, boq_project:boq_project(project_name)', { count: 'exact' })
-        .eq('material_id', resolved.material_id)
-        .eq('is_deleted', false)
-        .limit(10),
-    ])
+    const bomUsageRes = await supabase
+      .from('bom_item')
+      .select('bom_id, item_name, uom, qty_per_unit, bom_template:bom_template(bom_name)', { count: 'exact' })
+      .eq('material_id', resolved.material_id)
+      .eq('is_deleted', false)
+      .limit(10)
 
-    if (bomUsageRes.error || boqUsageRes.error) {
-      return NextResponse.json({ error: bomUsageRes.error?.message ?? boqUsageRes.error?.message }, { status: 500 })
+    if (bomUsageRes.error) {
+      return NextResponse.json({ error: bomUsageRes.error.message }, { status: 500 })
     }
 
     return NextResponse.json({
       data: {
         bomUsage: { count: bomUsageRes.count ?? 0, rows: bomUsageRes.data ?? [] },
-        boqUsage: { count: boqUsageRes.count ?? 0, rows: boqUsageRes.data ?? [] },
       },
     })
   }

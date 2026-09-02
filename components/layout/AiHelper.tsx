@@ -12,11 +12,6 @@ const suggestions = [
     href: '/materials',
     hintKey: 'aiHelper.suggestions.materialsHint',
   },
-  {
-    labelKey: 'aiHelper.suggestions.boq',
-    href: '/boq/create',
-    hintKey: 'aiHelper.suggestions.boqHint',
-  },
 ]
 
 export function AiHelper() {

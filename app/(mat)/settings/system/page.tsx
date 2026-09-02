@@ -25,13 +25,6 @@ const REQUIRED_TABLES = [
   'mat_supplier_map',
   'mat_price_base',
   'mat_uom_conv',
-  'boq_project',
-  'boq_item',
-  'customer',
-  'boq_attachment',
-  'boq_comment',
-  'boq_template',
-  'boq_template_item',
   'bom_template',
   'bom_item',
   'audit_logs',
@@ -47,7 +40,6 @@ const OPTIONAL_ENV = [
   'LINE_CHANNEL_SECRET',
   'LINE_CHANNEL_ACCESS_TOKEN',
   'LINE_BOT_API_BASE_URL',
-  'ANTHROPIC_API_KEY',
   'GEMINI_API_KEY',
 ]
 
@@ -123,32 +115,6 @@ async function checkView(
     status: 'ok',
     message: 'Available',
     detail: 'View reachable',
-    required: true,
-  }
-}
-
-async function checkStorage(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<HealthCheck> {
-  const { error } = await supabase.storage
-    .from('boq-attachments')
-    .list('', { limit: 1 })
-
-  if (error) {
-    return {
-      name: 'boq-attachments',
-      status: 'error',
-      message: 'Failed',
-      detail: error.message,
-      required: true,
-    }
-  }
-
-  return {
-    name: 'boq-attachments',
-    status: 'ok',
-    message: 'Available',
-    detail: 'Storage bucket reachable',
     required: true,
   }
 }
@@ -254,8 +220,6 @@ const EXPORT_LINKS = [
   { label: 'Price History CSV', href: '/api/export/price-history' },
   { label: 'BOM Templates CSV', href: '/api/export/bom-templates' },
   { label: 'BOM Items CSV', href: '/api/export/bom-items' },
-  { label: 'BOQ Projects CSV', href: '/api/export/boq-projects' },
-  { label: 'BOQ Items CSV', href: '/api/export/boq-items' },
   { label: 'All Master Data ZIP', href: '/api/export/all-master-data' },
 ]
 
@@ -370,9 +334,8 @@ export default async function SystemHealthPage() {
   if (requiredEnvOk) {
     const supabase = await createClient()
 
-    const [authCheck, storageCheck, viewCheck, ...tableChecks] = await Promise.all([
+    const [authCheck, viewCheck, ...tableChecks] = await Promise.all([
       checkAuth(supabase),
-      checkStorage(supabase),
       checkView(supabase, 'v_mat_latest_price'),
       ...REQUIRED_TABLES.map((table) => checkTable(supabase, table)),
     ])
@@ -382,18 +345,11 @@ export default async function SystemHealthPage() {
     databaseChecks = [viewCheck, ...tableChecks]
     integrationChecks = [
       authCheck,
-      storageCheck,
       {
         name: 'LINE webhook',
         status: process.env.LINE_CHANNEL_SECRET && process.env.LINE_CHANNEL_ACCESS_TOKEN ? 'ok' : 'warning',
         message: process.env.LINE_CHANNEL_SECRET && process.env.LINE_CHANNEL_ACCESS_TOKEN ? 'Configured' : 'Missing env',
         detail: '/api/line/webhook',
-      },
-      {
-        name: 'AI price suggestion',
-        status: process.env.ANTHROPIC_API_KEY ? 'ok' : 'warning',
-        message: process.env.ANTHROPIC_API_KEY ? 'Configured' : 'Optional',
-        detail: '/api/boq/[id]/ai-price',
       },
       {
         name: 'Receipt AI/OCR',

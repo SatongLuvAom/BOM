@@ -21,16 +21,12 @@ function normalizeHelpKey(pathname: string) {
   if (pathname.startsWith('/materials/')) return 'materialDetail'
   if (pathname === '/materials') return 'materials'
   if (pathname.startsWith('/bom')) return 'bom'
-  if (pathname.startsWith('/boq')) return pathname.includes('/print') ? null : 'boq'
   if (pathname.startsWith('/categories')) return 'categories'
   if (pathname.startsWith('/uom')) return 'uom'
   if (pathname.startsWith('/suppliers')) return 'suppliers'
   if (pathname.startsWith('/prices')) return 'prices'
   if (pathname.startsWith('/receipts')) return 'receipts'
-  if (pathname.startsWith('/customers')) return 'customers'
-  if (pathname.startsWith('/reports')) return 'reports'
   if (pathname.startsWith('/settings')) return 'settings'
-  if (pathname.startsWith('/templates')) return 'boq'
   return null
 }
 

@@ -76,15 +76,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
     return notFoundError('Material not found')
   }
 
-  const [latestMap, bomUsageRes, boqUsageRes, auditRes, codeHistoryRes] = await Promise.all([
+  const [latestMap, bomUsageRes, auditRes, codeHistoryRes] = await Promise.all([
     fetchLatestPriceMap(supabase, [resolved.material_id]),
     supabase
       .from('bom_item')
-      .select('material_id', { count: 'exact', head: true })
-      .eq('material_id', resolved.material_id)
-      .eq('is_deleted', false),
-    supabase
-      .from('boq_item')
       .select('material_id', { count: 'exact', head: true })
       .eq('material_id', resolved.material_id)
       .eq('is_deleted', false),
@@ -121,7 +116,6 @@ export async function GET(_req: NextRequest, { params }: Params) {
       code_history: codeHistoryRes.data ?? [],
       usage: {
         bom_items: bomUsageRes.count ?? 0,
-        boq_items: boqUsageRes.count ?? 0,
       },
       audit_summary: auditRes.data ?? [],
     },

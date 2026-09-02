@@ -22,7 +22,7 @@ export default async function BomLibraryPage() {
     <div>
       <Header
         title="BOM Library"
-        subtitle="สูตรงานบูธ — ใช้ explode รายการเข้า BOQ อัตโนมัติ"
+        subtitle="สูตรงานบูธและรายการวัสดุ/แรงงานมาตรฐานที่ใช้ซ้ำได้"
         actions={
           <Link
             href="/bom/create"

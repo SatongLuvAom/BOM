@@ -43,13 +43,10 @@ type SupplierSummary = {
 
 type UsageRow = {
   bom_id?: string
-  project_id?: string
   item_name: string | null
   uom: string | null
   qty_per_unit?: number | null
-  qty?: number | null
   bom_template?: { bom_name: string | null } | null
-  boq_project?: { project_name: string | null } | null
 }
 
 type AuditRow = {
@@ -63,7 +60,7 @@ type SectionData =
   | { supplier_maps: MatSupplierMap[] }
   | { aliases: MatAlias[] }
   | { uom_conversions: MatUomConv[]; uoms: MatUom[] }
-  | { bomUsage: { count: number; rows: UsageRow[] }; boqUsage: { count: number; rows: UsageRow[] } }
+  | { bomUsage: { count: number; rows: UsageRow[] } }
   | { auditRows: AuditRow[] }
   | { quality: MatQualityScore }
   | { codeHistory: MaterialCodeHistory[]; materialTypes: MaterialType[] }
@@ -74,7 +71,7 @@ const SECTIONS: { key: SectionKey; label: string; description: string }[] = [
   { key: 'suppliers', label: 'Suppliers', description: 'Material supplier mappings.' },
   { key: 'aliases', label: 'Aliases', description: 'Searchable old names and alternative names.' },
   { key: 'uom-conversions', label: 'UOM conversions', description: 'Material-specific unit conversion rules.' },
-  { key: 'usage', label: 'BOM/BOQ usage', description: 'Where this material is referenced.' },
+  { key: 'usage', label: 'BOM usage', description: 'Where this material is referenced in BOMs.' },
   { key: 'audit', label: 'Audit', description: 'Recent material master audit rows.' },
   { key: 'code-history', label: 'Code history', description: 'Code governance and change history.' },
 ]
@@ -244,13 +241,8 @@ function renderSection(key: SectionKey, data: SectionData, material: MatMaster) 
   }
 
   if (key === 'usage') {
-    const sectionData = data as { bomUsage: { count: number; rows: UsageRow[] }; boqUsage: { count: number; rows: UsageRow[] } }
-    return (
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <UsagePanel title="Usage in BOM" count={sectionData.bomUsage?.count ?? 0} rows={sectionData.bomUsage?.rows ?? []} kind="bom" />
-        <UsagePanel title="Usage in BOQ" count={sectionData.boqUsage?.count ?? 0} rows={sectionData.boqUsage?.rows ?? []} kind="boq" />
-      </div>
-    )
+    const sectionData = data as { bomUsage: { count: number; rows: UsageRow[] } }
+    return <UsagePanel title="Usage in BOM" count={sectionData.bomUsage?.count ?? 0} rows={sectionData.bomUsage?.rows ?? []} />
   }
 
   if (key === 'audit') {
@@ -365,7 +357,7 @@ function QaBreakdown({ quality }: { quality: MatQualityScore | null | undefined 
   )
 }
 
-function UsagePanel({ title, count, rows, kind }: { title: string; count: number; rows: UsageRow[]; kind: 'bom' | 'boq' }) {
+function UsagePanel({ title, count, rows }: { title: string; count: number; rows: UsageRow[] }) {
   return (
     <div className="rounded-lg border border-stone-200 p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -377,14 +369,12 @@ function UsagePanel({ title, count, rows, kind }: { title: string; count: number
       ) : (
         <div className="space-y-2">
           {rows.map((row, index) => (
-            <div key={`${kind}-${index}`} className="rounded-lg bg-stone-50 px-3 py-2">
+            <div key={`bom-${index}`} className="rounded-lg bg-stone-50 px-3 py-2">
               <p className="truncate text-sm font-medium text-slate-800">
-                {kind === 'bom'
-                  ? row.bom_template?.bom_name ?? row.bom_id
-                  : row.boq_project?.project_name ?? row.project_id}
+                {row.bom_template?.bom_name ?? row.bom_id}
               </p>
               <p className="text-xs text-slate-500">
-                {row.item_name} - {kind === 'bom' ? row.qty_per_unit : row.qty} {row.uom}
+                {row.item_name} - {row.qty_per_unit} {row.uom}
               </p>
             </div>
           ))}
