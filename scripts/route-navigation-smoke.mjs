@@ -193,6 +193,8 @@ const materialRoute = read('app/api/materials/[id]/route.ts')
 const materialDeleteMigration = read('supabase/migrations/20260824_material_delete_atomic.sql')
 const materialListMigration = read('supabase/migrations/20260824_material_list_query_rpc.sql')
 const materialListPageMigration = read('supabase/migrations/20260902_material_list_page_payload.sql')
+const supabaseReadme = read('supabase/README.md')
+const schemaAudit = read('supabase/schema_audit.sql')
 const materialsPage = read('app/(mat)/materials/page.tsx')
 if (materialRoute.includes("supabase.rpc('delete_material_atomic'")) {
   pass('material delete route uses the atomic database RPC')
@@ -266,6 +268,32 @@ if (materialListRpcRequirements.every((snippet) => materialListMigration.include
   pass('material list RPC preserves RLS and implements server-side filters, sorting, count, and pagination')
 } else {
   fail('material list RPC is missing a required query or security contract')
+}
+
+const materialListMigrationIndex = supabaseReadme.indexOf('20260824_material_list_query_rpc.sql')
+const materialListPageMigrationIndex = supabaseReadme.indexOf('20260902_material_list_page_payload.sql')
+const schemaAuditIndex = supabaseReadme.indexOf('Run supabase/schema_audit.sql again')
+if (
+  materialListMigrationIndex >= 0
+  && materialListPageMigrationIndex > materialListMigrationIndex
+  && schemaAuditIndex > materialListPageMigrationIndex
+) {
+  pass('Supabase setup order applies both material list RPCs before the live schema audit')
+} else {
+  fail('Supabase setup order can skip a material list RPC before the live schema audit')
+}
+
+const materialListPageAuditRequirements = [
+  "('list_materials_page', 'material-list')",
+  "'list_materials_page_security'",
+  "'list_materials_page_execute_grant'",
+  "'list_materials_page_anon_execute_revoked'",
+  "to_regprocedure('public.list_materials_page(text,text,text,text,text,text,text,text,integer,integer)')",
+]
+if (materialListPageAuditRequirements.every((snippet) => schemaAudit.includes(snippet))) {
+  pass('live schema audit verifies the material list page RPC and its execute boundary')
+} else {
+  fail('live schema audit does not fully verify the material list page RPC')
 }
 
 const i18nClient = read('lib/i18n/client.tsx')

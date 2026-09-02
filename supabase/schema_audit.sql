@@ -139,6 +139,7 @@ expected_functions(function_name, phase) AS (
     ('fn_apply_material_code_cleanup_v1', 'material-code'),
     ('delete_material_atomic', 'material-delete'),
     ('list_materials', 'material-list'),
+    ('list_materials_page', 'material-list'),
     ('fn_post_purchase_receipt_to_price_history', 'receipt'),
     ('fn_post_purchase_receipt_ready_items', 'receipt'),
     ('approve_receipt_material_candidate_atomic', 'receipt-candidate'),
@@ -317,6 +318,62 @@ material_list_security_checks AS (
       has_function_privilege(
         'anon',
         to_regprocedure('public.list_materials(text,text,text,text,text,text,text,text,integer,integer)'),
+        'EXECUTE'
+      ),
+      false
+    ),
+    'expected anon EXECUTE privilege to be revoked'::text
+
+  UNION ALL
+
+  SELECT
+    'security'::text,
+    'material-list'::text,
+    'public'::text,
+    'list_materials_page_security'::text,
+    EXISTS (
+      SELECT 1
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public'
+        AND p.proname = 'list_materials_page'
+        AND p.prosecdef = false
+        AND EXISTS (
+          SELECT 1
+          FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) AS config(value)
+          WHERE config.value LIKE 'search_path=%public%pg_temp%'
+        )
+    ),
+    'expected SECURITY INVOKER with fixed search_path=public,pg_temp'::text
+
+  UNION ALL
+
+  SELECT
+    'security'::text,
+    'material-list'::text,
+    'public'::text,
+    'list_materials_page_execute_grant'::text,
+    coalesce(
+      has_function_privilege(
+        'authenticated',
+        to_regprocedure('public.list_materials_page(text,text,text,text,text,text,text,text,integer,integer)'),
+        'EXECUTE'
+      ),
+      false
+    ),
+    'expected authenticated EXECUTE grant'::text
+
+  UNION ALL
+
+  SELECT
+    'security'::text,
+    'material-list'::text,
+    'public'::text,
+    'list_materials_page_anon_execute_revoked'::text,
+    NOT coalesce(
+      has_function_privilege(
+        'anon',
+        to_regprocedure('public.list_materials_page(text,text,text,text,text,text,text,text,integer,integer)'),
         'EXECUTE'
       ),
       false
