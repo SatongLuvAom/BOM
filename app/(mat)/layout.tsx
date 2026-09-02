@@ -8,7 +8,7 @@ export default async function MatLayout({ children }: { children: React.ReactNod
   const locale = await getLocaleFromCookie()
 
   return (
-    <I18nProvider initialLocale={locale}>
+    <I18nProvider key={locale} initialLocale={locale}>
       <div data-i18n-root className="relative h-screen w-screen overflow-hidden bg-[var(--app-bg)] print:block print:h-auto print:w-auto print:overflow-visible print:bg-white">
         <div className="relative z-10 flex h-full w-full overflow-hidden bg-transparent print:block print:h-auto print:overflow-visible print:bg-white">
           <div className="print:hidden">

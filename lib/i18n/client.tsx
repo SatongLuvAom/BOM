@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { dictionaries, resolveLocale, translateKey, translateString } from './runtime'
+import { dictionaries, translateKey, translateString } from './runtime'
 import { defaultLocale, localeCookieName, type Dictionary, type Locale } from './types'
 
 type I18nContextValue = {
@@ -16,12 +16,6 @@ type I18nContextValue = {
 const I18nContext = createContext<I18nContextValue | null>(null)
 
 function writeLocale(locale: Locale) {
-  try {
-    window.localStorage.setItem(localeCookieName, locale)
-  } catch {
-    // Ignore blocked storage. The cookie below is enough for server-rendered pages.
-  }
-
   document.cookie = `${localeCookieName}=${locale}; path=/; max-age=31536000; SameSite=Lax`
   document.documentElement.lang = locale
 }
@@ -37,22 +31,15 @@ export function I18nProvider({
   const [locale, setLocaleState] = useState<Locale>(initialLocale)
 
   useEffect(() => {
-    let stored: string | null = null
-    try {
-      stored = window.localStorage.getItem(localeCookieName)
-    } catch {
-      stored = null
-    }
-
-    const nextLocale = resolveLocale(stored ?? initialLocale)
-    setLocaleState(nextLocale)
-    writeLocale(nextLocale)
+    setLocaleState(initialLocale)
+    writeLocale(initialLocale)
   }, [initialLocale])
 
   const setLocale = useCallback((nextLocale: Locale) => {
-    setLocaleState(nextLocale)
     writeLocale(nextLocale)
-    // Refresh only on explicit language changes so server-rendered page titles/help use the cookie locale too.
+    // Update the client snapshot before refreshing Server Components so both
+    // sides render from the same cookie locale throughout the transition.
+    setLocaleState(nextLocale)
     router.refresh()
   }, [router])
 
@@ -102,9 +89,12 @@ function LegacyTextLocalizer({ locale }: { locale: Locale }) {
     const targets = roots.length > 0 ? roots : [document.body]
     const originals = originalsRef.current
     const attributeOriginals = attributeOriginalsRef.current
+    const managedSelector = '[data-i18n-managed]'
     let frame = 0
 
     function translateElementAttributes(element: Element) {
+      if (element.closest(managedSelector)) return
+
       for (const attribute of ['placeholder', 'title', 'aria-label']) {
         const value = element.getAttribute(attribute)
         if (!value) continue
@@ -118,9 +108,22 @@ function LegacyTextLocalizer({ locale }: { locale: Locale }) {
     }
 
     function translateRoot(root: Element) {
+      if (root.matches(managedSelector)) return
+
       translateElementAttributes(root)
 
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT)
+      const walker = document.createTreeWalker(
+        root,
+        NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+        {
+          acceptNode(node) {
+            return node.nodeType === Node.ELEMENT_NODE
+              && (node as Element).matches(managedSelector)
+              ? NodeFilter.FILTER_REJECT
+              : NodeFilter.FILTER_ACCEPT
+          },
+        },
+      )
       let node = walker.nextNode()
 
       while (node) {
