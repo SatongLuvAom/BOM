@@ -10,6 +10,7 @@ import { InlineStatusSelect } from '@/components/mat/InlineStatusSelect'
 import { formatThaiDateShort } from '@/lib/utils'
 import { calculateMaterialQuality, getMaterialCode, getMaterialPriceWarning, getMaterialRouteId } from '@/lib/material-master'
 import { routes } from '@/lib/routes'
+import { useI18n } from '@/lib/i18n/client'
 import type { MatLatestPrice, MatMaster, MatQualityScore, MatStatus } from '@/types/mat'
 
 interface MaterialListProps {
@@ -21,11 +22,11 @@ interface MaterialListProps {
   total?: number
 }
 
-const STATUS_OPTIONS: { value: MatStatus | ''; label: string }[] = [
-  { value: '', label: 'ทุกสถานะ' },
-  { value: 'ACTIVE', label: 'ใช้งาน' },
-  { value: 'INACTIVE', label: 'ปิดใช้' },
-  { value: 'DISCONTINUED', label: 'ยกเลิก' },
+const STATUS_OPTIONS: { value: MatStatus | ''; labelKey: string }[] = [
+  { value: '', labelKey: 'materialsPage.list.allStatuses' },
+  { value: 'ACTIVE', labelKey: 'status.active' },
+  { value: 'INACTIVE', labelKey: 'status.inactive' },
+  { value: 'DISCONTINUED', labelKey: 'materialsPage.list.discontinued' },
 ]
 
 type SortKey =
@@ -42,34 +43,34 @@ type SortKey =
   | 'status'
   | 'updated_at'
 
-const SORT_COLS: { key: SortKey; label: string; className?: string }[] = [
-  { key: 'material_code', label: 'รหัสวัสดุ' },
-  { key: 'mat_name_th', label: 'ชื่อวัสดุ' },
-  { key: 'brand', label: 'Brand' },
-  { key: 'spec', label: 'SPEC' },
-  { key: 'category', label: 'หมวด' },
-  { key: 'base_uom', label: 'หน่วย' },
-  { key: 'latest_price', label: 'LATEST PRICE', className: 'text-right' },
-  { key: 'supplier', label: 'ซัพพลายเออร์' },
-  { key: 'price_status', label: 'สถานะราคา' },
-  { key: 'quality_score', label: 'คุณภาพข้อมูล' },
-  { key: 'status', label: 'สถานะ' },
-  { key: 'updated_at', label: 'อัปเดต' },
+const SORT_COLS: { key: SortKey; labelKey: string; className?: string }[] = [
+  { key: 'material_code', labelKey: 'terms.materialCode' },
+  { key: 'mat_name_th', labelKey: 'terms.materialName' },
+  { key: 'brand', labelKey: 'terms.brand' },
+  { key: 'spec', labelKey: 'terms.spec' },
+  { key: 'category', labelKey: 'terms.category' },
+  { key: 'base_uom', labelKey: 'terms.uom' },
+  { key: 'latest_price', labelKey: 'terms.latestPrice', className: 'text-right' },
+  { key: 'supplier', labelKey: 'terms.supplier' },
+  { key: 'price_status', labelKey: 'materialsPage.list.priceStatus' },
+  { key: 'quality_score', labelKey: 'terms.qualityScore' },
+  { key: 'status', labelKey: 'common.status' },
+  { key: 'updated_at', labelKey: 'materialsPage.list.updated' },
 ]
 
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-  { key: 'updated_at', label: 'อัปเดตล่าสุด' },
-  { key: 'material_code', label: 'รหัสวัสดุ' },
-  { key: 'mat_name_th', label: 'ชื่อวัสดุ' },
-  { key: 'brand', label: 'Brand' },
-  { key: 'spec', label: 'SPEC' },
-  { key: 'category', label: 'หมวด' },
-  { key: 'base_uom', label: 'หน่วย' },
-  { key: 'latest_price', label: 'ราคาล่าสุด' },
-  { key: 'supplier', label: 'ซัพพลายเออร์' },
-  { key: 'price_status', label: 'สถานะราคา' },
-  { key: 'quality_score', label: 'คุณภาพข้อมูล' },
-  { key: 'status', label: 'สถานะ' },
+const SORT_OPTIONS: { key: SortKey; labelKey: string }[] = [
+  { key: 'updated_at', labelKey: 'materialsPage.list.updated' },
+  { key: 'material_code', labelKey: 'terms.materialCode' },
+  { key: 'mat_name_th', labelKey: 'terms.materialName' },
+  { key: 'brand', labelKey: 'terms.brand' },
+  { key: 'spec', labelKey: 'terms.spec' },
+  { key: 'category', labelKey: 'terms.category' },
+  { key: 'base_uom', labelKey: 'terms.uom' },
+  { key: 'latest_price', labelKey: 'terms.latestPrice' },
+  { key: 'supplier', labelKey: 'terms.supplier' },
+  { key: 'price_status', labelKey: 'materialsPage.list.priceStatus' },
+  { key: 'quality_score', labelKey: 'terms.qualityScore' },
+  { key: 'status', labelKey: 'common.status' },
 ]
 
 const SORT_KEYS = SORT_OPTIONS.map((option) => option.key)
@@ -85,21 +86,21 @@ function IconBtn({ href, title, icon, danger }: { href?: string; title: string; 
       ? 'text-slate-400 hover:border-red-100 hover:bg-red-50 hover:text-red-600'
       : 'text-slate-500 hover:border-slate-200 hover:bg-slate-100 hover:text-blue-950'
   }`
-  if (href) return <Link href={href} title={title} className={cls}>{icon}</Link>
+  if (href) return <Link href={href} prefetch={false} title={title} className={cls}>{icon}</Link>
   return <span title={title} className={cls}>{icon}</span>
 }
 
-function qualityLabelThai(label: string) {
+function translatableQualityLabel(label: string) {
   const normalized = String(label || '').toLowerCase()
-  if (normalized.includes('ready')) return 'พร้อมใช้งาน'
-  if (normalized.includes('missing price')) return 'ยังไม่มีราคา'
-  if (normalized.includes('missing preferred supplier')) return 'ยังไม่มีซัพพลายเออร์หลัก'
-  if (normalized.includes('missing supplier')) return 'ยังไม่มีซัพพลายเออร์'
-  if (normalized.includes('missing uom')) return 'ยังไม่มีหน่วย'
-  if (normalized.includes('stale')) return 'ราคาเก่าแล้ว'
-  if (normalized.includes('expired')) return 'ราคาหมดอายุ'
-  if (normalized.includes('incomplete')) return 'ข้อมูลไม่ครบ'
-  return label || 'ข้อมูลไม่ครบ'
+  if (normalized.includes('ready')) return 'Ready'
+  if (normalized.includes('missing price')) return 'Missing price'
+  if (normalized.includes('missing preferred supplier')) return 'Missing preferred supplier'
+  if (normalized.includes('missing supplier')) return 'Missing supplier'
+  if (normalized.includes('missing uom')) return 'Missing UOM'
+  if (normalized.includes('stale')) return 'Price stale'
+  if (normalized.includes('expired')) return 'Price expired'
+  if (normalized.includes('incomplete')) return 'Incomplete'
+  return label || 'Incomplete'
 }
 
 function qualityColor(score: number) {
@@ -109,9 +110,9 @@ function qualityColor(score: number) {
 }
 
 function priceStatus(price: MatLatestPrice | undefined, warning: string | null | undefined) {
-  if (!price) return { label: 'ยังไม่มีราคา', color: 'red' as const }
+  if (!price) return { label: 'Missing price', color: 'red' as const }
   if (warning) return { label: warning, color: 'orange' as const }
-  return { label: 'พร้อมใช้', color: 'green' as const }
+  return { label: 'Ready', color: 'green' as const }
 }
 
 export function MaterialList({
@@ -125,6 +126,7 @@ export function MaterialList({
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { t, text } = useI18n()
   const [isPending, startTransition] = useTransition()
 
   const [materialRows, setMaterialRows] = useState(materials)
@@ -197,14 +199,14 @@ export function MaterialList({
   }
 
   async function handleDelete(m: MatMaster) {
-    if (!confirm(`ลบวัสดุ "${m.mat_name_th}" ?\nไม่สามารถย้อนกลับได้`)) return
+    if (!confirm(t('materialsPage.list.deleteConfirm', { name: m.mat_name_th }))) return
     setDeleting(m.material_id)
     setDeleteError((e) => ({ ...e, [m.material_id]: '' }))
     try {
       const res = await fetch(`/api/materials/${m.material_id}`, { method: 'DELETE' })
       const json = await res.json()
       if (!res.ok) {
-        setDeleteError((e) => ({ ...e, [m.material_id]: json.error ?? 'ลบไม่สำเร็จ' }))
+        setDeleteError((e) => ({ ...e, [m.material_id]: json.error ?? t('materialsPage.list.deleteFailed') }))
         return
       }
       setMaterialRows((current) => current.filter((row) => row.material_id !== m.material_id))
@@ -213,7 +215,7 @@ export function MaterialList({
     }
   }
 
-  function SortTh({ col, className = '' }: { col: { key: SortKey; label: string }; className?: string }) {
+  function SortTh({ col, className = '' }: { col: { key: SortKey; labelKey: string }; className?: string }) {
     return (
       <th aria-sort={sortBy === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className={className}>
         <button
@@ -221,7 +223,7 @@ export function MaterialList({
           onClick={() => handleSort(col.key)}
           className="inline-flex items-center rounded-lg px-2 py-1 transition-colors hover:bg-slate-200/70 hover:text-blue-950"
         >
-          {col.label}<SortIcon dir={colDir(col.key)} />
+          {t(col.labelKey)}<SortIcon dir={colDir(col.key)} />
         </button>
       </th>
     )
@@ -233,7 +235,7 @@ export function MaterialList({
         <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
           <div className="min-w-[280px] flex-1">
             <SearchInput
-              placeholder="ค้นหา รหัสวัสดุ, ชื่อวัสดุ, Brand, SPEC, Supplier..."
+              placeholder={t('materialsPage.list.searchPlaceholder')}
               searchOn="enter"
               minSearchLength={2}
             />
@@ -241,35 +243,35 @@ export function MaterialList({
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center 2xl:justify-end">
             <div className="flex min-w-[260px] items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
-              <span className="shrink-0 text-xs font-bold text-slate-400">เรียงลำดับ</span>
+              <span className="shrink-0 text-xs font-bold text-slate-400">{t('materialsPage.list.sort')}</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortKey(e.target.value as SortKey)}
                 className="min-w-0 flex-1 rounded-md border-0 bg-transparent py-1 pl-1 pr-7 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-0"
               >
                 {SORT_OPTIONS.map((option) => (
-                  <option key={option.key} value={option.key}>{option.label}</option>
+                  <option key={option.key} value={option.key}>{t(option.labelKey)}</option>
                 ))}
               </select>
               <button
                 type="button"
                 onClick={toggleSortDir}
                 className="rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-100"
-                title="สลับลำดับ"
+                title={t('materialsPage.list.toggleSort')}
               >
                 {sortDir === 'asc' ? 'ASC' : 'DESC'}
               </button>
             </div>
 
             <a href={getExportUrl()} download className="btn-secondary whitespace-nowrap">
-              ส่งออก CSV
+              {text('ส่งออก CSV')}
             </a>
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <select value={searchParams.get('cat_id') ?? ''} onChange={(e) => setParam('cat_id', e.target.value)} className="ops-select">
-            <option value="">ทุกหมวดหมู่</option>
+            <option value="">{t('materialsPage.list.allCategories')}</option>
             {categories.map((c) => (
               <option key={c.cat_id} value={c.cat_id}>{c.cat_name_th}</option>
             ))}
@@ -277,23 +279,23 @@ export function MaterialList({
 
           <select value={searchParams.get('status') ?? ''} onChange={(e) => setParam('status', e.target.value)} className="ops-select">
             {STATUS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
             ))}
           </select>
 
           <select value={searchParams.get('has_price') ?? ''} onChange={(e) => setParam('has_price', e.target.value)} className="ops-select">
-            <option value="">ราคาทั้งหมด</option>
-            <option value="yes">มีราคา</option>
-            <option value="missing">ยังไม่มีราคา</option>
+            <option value="">{t('materialsPage.list.allPrices')}</option>
+            <option value="yes">{t('materialsPage.list.hasPrice')}</option>
+            <option value="missing">{t('materialsPage.missingPrice')}</option>
           </select>
 
           <select value={searchParams.get('stale_price') ?? ''} onChange={(e) => setParam('stale_price', e.target.value)} className="ops-select">
-            <option value="">อายุราคาทั้งหมด</option>
-            <option value="yes">ราคาล่าสุดเกิน 30 วัน</option>
+            <option value="">{t('materialsPage.list.allPriceAges')}</option>
+            <option value="yes">{t('materialsPage.list.priceOlderThan30Days')}</option>
           </select>
 
           <select value={searchParams.get('supplier_id') ?? ''} onChange={(e) => setParam('supplier_id', e.target.value)} className="ops-select">
-            <option value="">ทุกซัพพลายเออร์</option>
+            <option value="">{t('materialsPage.list.allSuppliers')}</option>
             {suppliers.map((supplier) => (
               <option key={supplier.supplier_id} value={supplier.supplier_id}>
                 {supplier.supplier_name_th}
@@ -310,16 +312,19 @@ export function MaterialList({
 
       {isPending && (
         <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-2 text-xs font-semibold text-blue-800">
-          กำลังอัปเดตรายการวัสดุ...
+          {t('materialsPage.list.updating')}
         </div>
       )}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-base font-bold text-blue-950">รายการวัสดุ</h2>
+            <h2 className="text-base font-bold text-blue-950">{t('materialsPage.list.title')}</h2>
             <p className="mt-0.5 text-xs font-medium text-slate-500">
-              แสดง {materialRows.length.toLocaleString('th-TH')} จาก {total.toLocaleString('th-TH')} รายการ
+              {t('materialsPage.list.summary', {
+                shown: materialRows.length.toLocaleString('th-TH'),
+                total: total.toLocaleString('th-TH'),
+              })}
             </p>
           </div>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
@@ -334,14 +339,14 @@ export function MaterialList({
                 {SORT_COLS.map((col) => (
                   <SortTh key={col.key} col={col} className={col.className ?? ''} />
                 ))}
-                <th className="sticky right-0 z-10 bg-slate-50/95 text-right backdrop-blur">จัดการ</th>
+                <th className="sticky right-0 z-10 bg-slate-50/95 text-right backdrop-blur">{t('common.actions')}</th>
               </tr>
             </thead>
             <tbody>
               {materialRows.length === 0 && (
                 <tr>
                   <td colSpan={13} className="px-6 py-16 text-center">
-                    <p className="text-sm text-slate-400">ไม่พบข้อมูลวัสดุ</p>
+                    <p className="text-sm text-slate-400">{t('materialsPage.list.noMaterials')}</p>
                   </td>
                 </tr>
               )}
@@ -368,12 +373,12 @@ export function MaterialList({
                   hasAlias: Boolean(m.aliases?.length),
                 })
                 const qualityScore = computedQuality.quality_score ?? computedQuality.score ?? 0
-                const qualityLabel = qualityLabelThai(computedQuality.quality_label ?? computedQuality.label ?? 'Incomplete')
+                const qualityLabel = translatableQualityLabel(computedQuality.quality_label ?? computedQuality.label ?? 'Incomplete')
 
                 return (
                   <tr key={m.material_id} className="group">
                     <td>
-                      <Link href={detailHref ?? routes.materials.list()} className="font-mono text-xs font-semibold text-blue-900 hover:underline">
+                      <Link href={detailHref ?? routes.materials.list()} prefetch={false} className="font-mono text-xs font-semibold text-blue-900 hover:underline">
                         {code}
                       </Link>
                       {m.id && <p className="mt-0.5 max-w-[120px] truncate text-[10px] text-slate-300">{m.id}</p>}
@@ -407,7 +412,7 @@ export function MaterialList({
                           <p className="text-[10px] text-slate-400">{formatThaiDateShort(price.effective_date)}</p>
                         </div>
                       ) : (
-                        <span className="text-xs font-semibold text-red-400">ยังไม่มีราคา</span>
+                        <span className="text-xs font-semibold text-red-400">{text('ยังไม่มีราคา')}</span>
                       )}
                     </td>
                     <td>
@@ -417,7 +422,7 @@ export function MaterialList({
                       <div className="min-w-[104px]">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-bold text-slate-700">{qualityScore}/100</span>
-                          <span className="max-w-[72px] truncate text-[10px] font-medium text-slate-400">{qualityLabel}</span>
+                          <span className="max-w-[72px] truncate text-[10px] font-medium text-slate-400">{text(qualityLabel)}</span>
                         </div>
                         <div className="mt-1.5 h-1.5 rounded-full bg-slate-200">
                           <div className={`h-1.5 rounded-full ${qualityColor(qualityScore)}`} style={{ width: `${Math.min(100, qualityScore)}%` }} />
@@ -434,7 +439,7 @@ export function MaterialList({
                       <div className="flex items-center justify-end gap-1">
                         <IconBtn
                           href={detailHref ?? undefined}
-                          title="ดูรายละเอียด"
+                          title={t('common.view')}
                           icon={
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -444,7 +449,7 @@ export function MaterialList({
                         />
                         <IconBtn
                           href={editHref ?? undefined}
-                          title="แก้ไข"
+                          title={t('common.edit')}
                           icon={
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -455,7 +460,7 @@ export function MaterialList({
                         <button
                           onClick={() => handleDelete(m)}
                           disabled={deleting === m.material_id}
-                          title="ลบ"
+                          title={t('common.delete')}
                           className="relative z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-slate-400 transition-colors hover:border-red-100 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
                         >
                           {deleting === m.material_id ? (

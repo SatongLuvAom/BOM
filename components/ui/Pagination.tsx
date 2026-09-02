@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useTransition } from 'react'
+import { useI18n } from '@/lib/i18n/client'
 
 interface PaginationProps {
   total: number
@@ -13,6 +14,7 @@ export function Pagination({ total, page, limit }: PaginationProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const { t } = useI18n()
   const [isPending, startTransition] = useTransition()
 
   const totalPages = Math.ceil(total / limit)
@@ -31,8 +33,8 @@ export function Pagination({ total, page, limit }: PaginationProps) {
   return (
     <div className="flex items-center justify-between border-t border-stone-200 bg-[var(--app-surface)] px-5 py-3 pr-20">
       <p className="text-xs text-slate-500 font-medium">
-        แสดง <span className="font-semibold text-slate-700">{start}–{end}</span> จาก <span className="font-semibold text-slate-700">{total.toLocaleString()}</span> รายการ
-        {isPending && <span className="ml-2 font-semibold text-cyan-700">Loading page...</span>}
+        {t('common.pagination.summary', { start, end, total: total.toLocaleString() })}
+        {isPending && <span className="ml-2 font-semibold text-cyan-700">{t('common.pagination.loading')}</span>}
       </p>
       <div className="flex items-center gap-1">
         <button
@@ -41,7 +43,7 @@ export function Pagination({ total, page, limit }: PaginationProps) {
           className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600
                      hover:bg-stone-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
         >
-          ← ก่อนหน้า
+          {t('common.pagination.previous')}
         </button>
 
         {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
@@ -68,7 +70,7 @@ export function Pagination({ total, page, limit }: PaginationProps) {
           className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600
                      hover:bg-stone-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
         >
-          ถัดไป →
+          {t('common.pagination.next')}
         </button>
       </div>
     </div>
