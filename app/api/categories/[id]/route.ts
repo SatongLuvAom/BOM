@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { writeAuditLog } from '@/lib/server-utils'
 import { updateCategorySchema } from '@/lib/validations/category'
 import { databaseError, duplicateError, notFoundError, relationInUseError, validationError } from '@/lib/api/responses'
+import { invalidateActiveCategoriesCache } from '@/lib/server/master-data-cache'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -78,6 +79,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return databaseError('Could not update category', { message: error.message })
   }
 
+  invalidateActiveCategoriesCache()
+
   await writeAuditLog({
     entityType: 'mat_category',
     entityKey: id,
@@ -128,6 +131,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (error) {
     return databaseError('Could not delete category', { message: error.message })
   }
+
+  invalidateActiveCategoriesCache()
 
   await writeAuditLog({
     entityType: 'mat_category',

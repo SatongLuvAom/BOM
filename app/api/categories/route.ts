@@ -3,6 +3,7 @@ import { requireOwnerApi } from '@/lib/auth/owner'
 import { createClient } from '@/lib/supabase/server'
 import { createCategorySchema } from '@/lib/validations/category'
 import { generateCategoryId, writeAuditLog } from '@/lib/server-utils'
+import { invalidateActiveCategoriesCache } from '@/lib/server/master-data-cache'
 
 // GET /api/categories
 export async function GET(_req: NextRequest) {
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  invalidateActiveCategoriesCache()
 
   await writeAuditLog({
     entityType: 'mat_category',

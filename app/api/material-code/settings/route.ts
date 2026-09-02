@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { writeAuditLog } from '@/lib/server-utils'
 import { databaseError, duplicateError, relationInUseError, validationError } from '@/lib/api/responses'
 import { isStandardMaterialCode, sanitizeCategoryPrefix, sanitizeTypePrefix } from '@/lib/material-code'
+import { invalidateActiveCategoriesCache } from '@/lib/server/master-data-cache'
 
 const CATEGORY_SETTINGS_SELECT = 'id, cat_id, cat_code, code_prefix, cat_name_th, cat_name_en, is_active, is_deleted, created_at, updated_at'
 const MATERIAL_TYPE_SETTINGS_SELECT = 'id, category_id, name, code_prefix, description, is_active, created_at, updated_at'
@@ -105,6 +106,8 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (error) return databaseError('Could not update category prefix', { message: error.message })
+
+    invalidateActiveCategoriesCache()
 
     await writeAuditLog({
       entityType: 'mat_category',

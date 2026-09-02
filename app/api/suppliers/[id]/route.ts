@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { updateSupplierSchema } from '@/lib/validations/supplier'
 import { writeAuditLog } from '@/lib/server-utils'
 import { databaseError, duplicateError, notFoundError, relationInUseError, validationError } from '@/lib/api/responses'
+import { invalidateActiveSuppliersCache } from '@/lib/server/master-data-cache'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -99,6 +100,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return databaseError('Could not update supplier', { message: error.message })
   }
 
+  invalidateActiveSuppliersCache()
+
   await writeAuditLog({
     entityType: 'supplier',
     entityKey: id,
@@ -156,6 +159,8 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (error) {
     return databaseError('Could not delete supplier', { message: error.message })
   }
+
+  invalidateActiveSuppliersCache()
 
   await writeAuditLog({
     entityType: 'supplier',

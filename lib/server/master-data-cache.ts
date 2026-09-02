@@ -1,13 +1,20 @@
 import { cache } from 'react'
+import { revalidateTag, unstable_cache } from 'next/cache'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+
+const ACTIVE_CATEGORIES_CACHE_TAG = 'master-data:active-categories'
+const ACTIVE_SUPPLIERS_CACHE_TAG = 'master-data:active-suppliers'
+const MASTER_DATA_CACHE_TTL_SECONDS = 300
 
 function normalizeRelation<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null
 }
 
-export const getCachedActiveCategories = cache(
+const getPersistedActiveCategories = unstable_cache(
   async () => {
-    const supabase = await createClient()
+    const startedAt = performance.now()
+    const supabase = createAdminClient()
     const { data, error } = await supabase
       .from('mat_category')
       .select('id, cat_id, cat_code, code_prefix, cat_name_th, cat_name_en, parent_cat_id, is_active, sort_order, deleted_at, created_by, updated_by, created_at, updated_at')
@@ -16,9 +23,20 @@ export const getCachedActiveCategories = cache(
       .order('sort_order')
 
     if (error) throw new Error(error.message)
-    return data ?? []
+    const categories = data ?? []
+    console.info(JSON.stringify({
+      event: 'master_data_cache_miss',
+      resource: 'active_categories',
+      duration_ms: Math.round(performance.now() - startedAt),
+      row_count: categories.length,
+    }))
+    return categories
   },
+  ['active-categories-v1'],
+  { tags: [ACTIVE_CATEGORIES_CACHE_TAG], revalidate: MASTER_DATA_CACHE_TTL_SECONDS },
 )
+
+export const getCachedActiveCategories = cache(getPersistedActiveCategories)
 
 export const getCachedActiveUoms = cache(
   async () => {
@@ -52,9 +70,10 @@ export const getCachedActiveMaterialTypes = cache(
   },
 )
 
-export const getCachedActiveSuppliers = cache(
+const getPersistedActiveSuppliers = unstable_cache(
   async () => {
-    const supabase = await createClient()
+    const startedAt = performance.now()
+    const supabase = createAdminClient()
     const { data, error } = await supabase
       .from('supplier')
       .select('supplier_id, supplier_name_th, supplier_code')
@@ -63,6 +82,25 @@ export const getCachedActiveSuppliers = cache(
       .order('supplier_name_th')
 
     if (error) throw new Error(error.message)
-    return data ?? []
+    const suppliers = data ?? []
+    console.info(JSON.stringify({
+      event: 'master_data_cache_miss',
+      resource: 'active_suppliers',
+      duration_ms: Math.round(performance.now() - startedAt),
+      row_count: suppliers.length,
+    }))
+    return suppliers
   },
+  ['active-suppliers-v1'],
+  { tags: [ACTIVE_SUPPLIERS_CACHE_TAG], revalidate: MASTER_DATA_CACHE_TTL_SECONDS },
 )
+
+export const getCachedActiveSuppliers = cache(getPersistedActiveSuppliers)
+
+export function invalidateActiveCategoriesCache() {
+  revalidateTag(ACTIVE_CATEGORIES_CACHE_TAG)
+}
+
+export function invalidateActiveSuppliersCache() {
+  revalidateTag(ACTIVE_SUPPLIERS_CACHE_TAG)
+}

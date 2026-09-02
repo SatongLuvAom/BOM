@@ -5,6 +5,7 @@ import { getPaginationRange } from '@/lib/utils'
 import { createSupplierSchema } from '@/lib/validations/supplier'
 import { generateSupplierId, writeAuditLog } from '@/lib/server-utils'
 import { buildOrIlikeFilter, normalizeSearchTerm } from '@/lib/supabase/filters'
+import { invalidateActiveSuppliersCache } from '@/lib/server/master-data-cache'
 
 export async function GET(req: NextRequest) {
   const owner = await requireOwnerApi()
@@ -111,6 +112,8 @@ export async function POST(req: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  invalidateActiveSuppliersCache()
 
   await writeAuditLog({
     entityType: 'supplier',
