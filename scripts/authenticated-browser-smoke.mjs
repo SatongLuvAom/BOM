@@ -18,6 +18,8 @@ const smokeKeys = [
   'SMOKE_BASE_URL',
   'SMOKE_EMAIL',
   'SMOKE_PASSWORD',
+  'SMOKE_RECEIPT_ID',
+  'SMOKE_DUPLICATE_FILE',
   'SMOKE_RELOADS',
   'SMOKE_AGENT_BROWSER_PATH',
   'SMOKE_BROWSER_PATH',
@@ -28,6 +30,8 @@ loadLocalSmokeEnvironment()
 const baseUrl = parseBaseUrl(process.env.SMOKE_BASE_URL ?? 'http://127.0.0.1:3000')
 const email = process.env.SMOKE_EMAIL?.trim() ?? ''
 const password = process.env.SMOKE_PASSWORD ?? ''
+const receiptId = process.env.SMOKE_RECEIPT_ID?.trim() ?? ''
+const duplicateFile = process.env.SMOKE_DUPLICATE_FILE?.trim() ?? ''
 const reloadRounds = parseReloadRounds(process.env.SMOKE_RELOADS)
 const secrets = [email, password].filter(Boolean)
 const childEnvironment = buildChildEnvironment()
@@ -35,6 +39,13 @@ const routes = [
   { path: '/dashboard', heading: /dashboard|แดชบอร์ด/i },
   { path: '/materials', heading: /materials|วัสดุ/i },
   { path: '/settings/material-code', heading: /material code settings|ตั้งค่ารหัสวัสดุ/i },
+  { path: '/receipts', heading: /นำเข้าราคาจากสลิป/i },
+  ...(receiptId ? [{
+    path: `/receipts/${encodeURIComponent(receiptId)}`,
+    heading: /สลิปซื้อวัสดุ/i,
+    requiredText: [/เอกสารต้นฉบับ/i, /ตรวจความถูกต้องของยอด/i],
+    requiredSelector: 'img[src*="/file"], iframe[src*="/file"]',
+  }] : []),
 ]
 
 let agentBrowserPath = ''
@@ -310,15 +321,59 @@ function checkRoute(route, round) {
 
   const currentUrl = new URL(runAgentJson(['get', 'url']).data.url)
   const heading = runAgentJson(['get', 'text', 'h1']).data.text.trim()
+  const pageText = route.requiredText?.length
+    ? runAgentJson(['get', 'text', 'body']).data.text
+    : ''
   const pageErrors = runAgentJson(['errors']).data.errors ?? []
   const browserErrors = consoleErrors(runAgentJson(['console']).data.messages ?? [])
   if (currentUrl.origin !== baseUrl.origin || currentUrl.pathname !== route.path) {
     throw new Error(`${route.path} redirected to ${currentUrl.pathname}`)
   }
   if (!route.heading.test(heading)) throw new Error(`${route.path} rendered unexpected heading: ${heading}`)
+  for (const expectedText of route.requiredText ?? []) {
+    if (!expectedText.test(pageText)) {
+      throw new Error(`${route.path} is missing expected content: ${expectedText}`)
+    }
+  }
+  if (route.requiredSelector) {
+    const count = runAgentJson(['get', 'count', route.requiredSelector]).data.count
+    if (count < 1) throw new Error(`${route.path} is missing document preview media`)
+  }
   if (pageErrors.length) throw new Error(`${route.path} page error: ${issueText(pageErrors[0])}`)
   if (browserErrors.length) throw new Error(`${route.path} console error: ${issueText(browserErrors[0])}`)
   return heading
+}
+
+function checkDuplicateFileImport() {
+  if (!duplicateFile) return
+  if (!isFile(duplicateFile)) throw new Error(`SMOKE_DUPLICATE_FILE does not point to a file: ${duplicateFile}`)
+
+  runAgentJson(['errors', '--clear'])
+  runAgentJson(['console', '--clear'])
+  runAgentJson(['open', new URL('/receipts/new', baseUrl).toString()])
+  runAgentJson(['wait', 'input[type="file"]'])
+  runAgentJson(['upload', 'input[type="file"]', duplicateFile])
+  runAgentJson(['click', 'button.btn-primary'])
+
+  let pageText = ''
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    runAgentJson(['wait', '250'])
+    pageText = runAgentJson(['get', 'text', 'body']).data.text
+    if (pageText.includes('เปิดสลิปเดิม')) break
+  }
+
+  const currentUrl = new URL(runAgentJson(['get', 'url']).data.url)
+  const pageErrors = runAgentJson(['errors']).data.errors ?? []
+  const browserErrors = consoleErrors(runAgentJson(['console']).data.messages ?? [])
+  if (currentUrl.pathname !== '/receipts/new') {
+    throw new Error(`duplicate receipt import unexpectedly navigated to ${currentUrl.pathname}`)
+  }
+  if (!pageText.includes('พบไฟล์สลิปนี้ในระบบแล้ว') || !pageText.includes('เปิดสลิปเดิม')) {
+    throw new Error('duplicate receipt import did not show the existing receipt warning/link')
+  }
+  if (pageErrors.length) throw new Error(`duplicate import page error: ${issueText(pageErrors[0])}`)
+  if (browserErrors.length) throw new Error(`duplicate import console error: ${issueText(browserErrors[0])}`)
+  console.log('✓ Duplicate receipt file blocked before draft creation')
 }
 
 async function main() {
@@ -372,6 +427,7 @@ async function main() {
       }
     }
   }
+  checkDuplicateFileImport()
   if (failures.length) throw new Error(`Browser smoke failed (${failures.length}/${routes.length} routes)`)
   console.log(`Browser smoke passed (${routes.length} routes, ${reloadRounds} round(s) each).`)
 }
