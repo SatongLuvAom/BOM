@@ -305,6 +305,8 @@ const pagination = read('components/ui/Pagination.tsx')
 const sidebar = read('components/layout/Sidebar.tsx')
 const materialExportRoute = read('app/api/materials/export/route.ts')
 const materialExportHelper = read('lib/server/material-export.ts')
+const authenticatedBrowserSmoke = read('scripts/authenticated-browser-smoke.mjs')
+const packageJson = JSON.parse(read('package.json'))
 if (
   materialList.includes('<Link href={href} prefetch={false}')
   && materialList.includes('<Link href={detailHref ?? routes.materials.list()} prefetch={false}')
@@ -382,6 +384,27 @@ if (
   pass('materials CSV follows the requested purchasing-table contract')
 } else {
   fail('materials CSV contract or current-price mapping is incomplete')
+}
+
+if (packageJson.scripts?.['smoke:browser'] === 'node scripts/authenticated-browser-smoke.mjs') {
+  pass('package exposes the authenticated browser smoke command')
+} else {
+  fail('package is missing the authenticated browser smoke command')
+}
+
+const authenticatedSmokeRequirements = [
+  "path: '/dashboard'",
+  "path: '/materials'",
+  "path: '/settings/material-code'",
+  "runAgentJson(['errors'])",
+  "runAgentJson(['console'])",
+  'SMOKE_EMAIL',
+  'SMOKE_PASSWORD',
+]
+if (authenticatedSmokeRequirements.every((snippet) => authenticatedBrowserSmoke.includes(snippet))) {
+  pass('authenticated browser smoke covers critical routes and browser errors')
+} else {
+  fail('authenticated browser smoke is missing a route, error check, or credential boundary')
 }
 
 const retiredFeatureRoots = [

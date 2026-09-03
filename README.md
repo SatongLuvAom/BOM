@@ -126,6 +126,31 @@ Useful checks:
 npm run build
 ```
 
+### Authenticated Browser Smoke
+
+The browser smoke test signs in and checks `/dashboard`, `/materials`, and
+`/settings/material-code`. It only reads pages: it does not submit create,
+update, or delete actions. Each route must keep the expected heading and URL,
+with zero page errors and zero console errors.
+
+Install the browser runner once:
+
+```powershell
+npm install -g agent-browser@0.34.0
+agent-browser install
+```
+
+Set `SMOKE_BASE_URL`, `SMOKE_EMAIL`, and `SMOKE_PASSWORD` in the ignored
+`.env.local` file, then run:
+
+```powershell
+npm run smoke:browser
+```
+
+Use `SMOKE_RELOADS=5` when checking a hydration fix across five reload rounds.
+The test launches an isolated temporary Chrome profile and never reuses a
+personal browser session.
+
 ## Vercel Deployment Checklist
 
 1. Create a Vercel project from this repo.
