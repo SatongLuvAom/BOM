@@ -1,7 +1,12 @@
 'use client'
 
+import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  getReceiptDuplicateNotice,
+  type ReceiptDuplicateNotice,
+} from '@/lib/receipt-duplicate-response'
 import { routes } from '@/lib/routes'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -59,6 +64,7 @@ export function ReceiptCreateDraftForm() {
   const [failedStage, setFailedStage] = useState<ProgressStage | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [duplicateReceipt, setDuplicateReceipt] = useState<ReceiptDuplicateNotice | null>(null)
 
   function validateFile(nextFile: File | null) {
     if (!nextFile) return 'กรุณาเลือกไฟล์สลิปก่อน'
@@ -73,6 +79,7 @@ export function ReceiptCreateDraftForm() {
     setError(fileError)
     setSuccess(null)
     setFailedStage(null)
+    setDuplicateReceipt(null)
     setStage(fileError ? 'idle' : 'file_selected')
     setFile(fileError ? null : nextFile)
   }
@@ -82,6 +89,7 @@ export function ReceiptCreateDraftForm() {
     setError(null)
     setSuccess(null)
     setFailedStage(null)
+    setDuplicateReceipt(null)
     setStage('idle')
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -112,6 +120,7 @@ export function ReceiptCreateDraftForm() {
     setFailedStage(null)
     setSuccess(null)
     setError(null)
+    setDuplicateReceipt(null)
     let didRedirect = false
     try {
       const res = await fetch('/api/receipts', {
@@ -155,6 +164,7 @@ export function ReceiptCreateDraftForm() {
     setFailedStage(null)
     setSuccess(null)
     setError(null)
+    setDuplicateReceipt(null)
     let didRedirect = false
     const timers = [
       window.setTimeout(() => {
@@ -177,6 +187,7 @@ export function ReceiptCreateDraftForm() {
       })
       const json = await res.json()
       if (!res.ok) {
+        setDuplicateReceipt(getReceiptDuplicateNotice(json))
         failImport(`${json.error ?? 'สร้าง Draft และอ่านด้วย AI ไม่สำเร็จ'} กรุณาลองใหม่ หรือกดสร้าง Draft เปล่าเพื่อกรอกข้อมูลเอง`)
         return
       }
@@ -344,6 +355,11 @@ export function ReceiptCreateDraftForm() {
               <>
                 <p>สร้าง Draft ไม่สำเร็จ</p>
                 <p className="mt-1 font-medium">{error}</p>
+                {duplicateReceipt && routes.receipts.detail(duplicateReceipt.id) && (
+                  <Link href={routes.receipts.detail(duplicateReceipt.id)!} className="mt-2 inline-flex font-bold underline">
+                    เปิดสลิปเดิม{duplicateReceipt.receiptNo ? ` เลขที่ ${duplicateReceipt.receiptNo}` : ''}
+                  </Link>
+                )}
               </>
             ) : success}
           </div>

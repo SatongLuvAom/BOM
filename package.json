@@ -10,7 +10,8 @@
     "start:local": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
     "smoke:routes": "node scripts/route-navigation-smoke.mjs",
-    "smoke:browser": "node scripts/authenticated-browser-smoke.mjs"
+    "smoke:browser": "node scripts/authenticated-browser-smoke.mjs",
+    "smoke:receipt-calculations": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/receipt-calculation-smoke.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

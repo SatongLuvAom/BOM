@@ -3,6 +3,16 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
+import {
+  formatReceiptMoney,
+  validateReceiptCalculations,
+  type ReceiptCalculationResult,
+} from '@/lib/receipt-calculations'
+import {
+  getReceiptDuplicateNotice,
+  type ReceiptDuplicateNotice,
+} from '@/lib/receipt-duplicate-response'
+import { routes } from '@/lib/routes'
 import type {
   MaterialCandidate,
   PurchaseReceipt,
@@ -94,12 +104,36 @@ export function ReceiptReviewClient({
   const [message, setMessage] = useState<string | null>(initialMessage)
   const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
+  const [duplicateReceipt, setDuplicateReceipt] = useState<ReceiptDuplicateNotice | null>(null)
 
   const isPosted = receipt.status === 'posted'
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
   const hasAiExtraction = Boolean(receipt.ai_raw_json || receipt.ai_raw_text)
   const effectiveSupplierId = header.supplier_id || receipt.supplier_id || null
-  const postBlockers = useMemo(() => buildPostBlockers({ ...receipt, supplier_id: effectiveSupplierId }, items), [effectiveSupplierId, receipt, items])
+  const receiptCalculation = useMemo(() => validateReceiptCalculations({
+    header: {
+      subtotal: header.subtotal,
+      vat: header.vat,
+      discount: header.discount,
+      grandTotal: header.grand_total,
+    },
+    items: items.map((item) => ({
+      id: item.id,
+      lineNo: item.line_no,
+      qty: item.qty,
+      unitPrice: item.unit_price,
+      lineTotal: item.line_total,
+    })),
+  }), [header.discount, header.grand_total, header.subtotal, header.vat, items])
+  const itemCalculationIssues = useMemo(() => new Map(
+    receiptCalculation.issues
+      .filter((issue) => issue.itemId)
+      .map((issue) => [issue.itemId!, issue]),
+  ), [receiptCalculation.issues])
+  const postBlockers = useMemo(() => Array.from(new Set([
+    ...buildPostBlockers({ ...receipt, supplier_id: effectiveSupplierId }, items),
+    ...receiptCalculation.issues.map((issue) => issue.message),
+  ])), [effectiveSupplierId, receipt, receiptCalculation.issues, items])
   const readiness = useMemo(() => buildReadinessSummary(items, isPosted), [items, isPosted])
   const receiptFlowStatus = useMemo(
     () => buildReceiptFlowStatus(receipt.status, Boolean(effectiveSupplierId), items.length, readiness, postBlockers.length),
@@ -147,6 +181,7 @@ export function ReceiptReviewClient({
     setMessage(null)
     setWarning(null)
     setError(null)
+    setDuplicateReceipt(null)
   }
 
   function setItemBusy(id: string, busy: boolean) {
@@ -179,6 +214,7 @@ export function ReceiptReviewClient({
     })
     const json = await res.json()
     if (!res.ok) {
+      setDuplicateReceipt(getReceiptDuplicateNotice(json))
       throw new Error(json.error ?? 'บันทึก Draft ไม่สำเร็จ')
     }
     if (!json.data) {
@@ -295,6 +331,7 @@ export function ReceiptReviewClient({
       })
       const json = await res.json()
       if (!res.ok) {
+        setDuplicateReceipt(getReceiptDuplicateNotice(json))
         setError(json.error ?? 'แนบไฟล์สลิปไม่สำเร็จ')
         return
       }
@@ -325,6 +362,7 @@ export function ReceiptReviewClient({
       })
       const json = await res.json()
       if (!res.ok) {
+        setDuplicateReceipt(getReceiptDuplicateNotice(json))
         setError(json.error ?? 'อ่านสลิปไม่สำเร็จ กรุณากรอกข้อมูลเองหรือลองใหม่')
         return
       }
@@ -551,7 +589,7 @@ export function ReceiptReviewClient({
 
   return (
     <div className="space-y-5">
-      {(message || warning || error) && (
+      {(message || warning || error || duplicateReceipt) && (
         <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
           error
             ? 'border-red-200 bg-red-50 text-red-700'
@@ -559,7 +597,12 @@ export function ReceiptReviewClient({
               ? 'border-amber-200 bg-amber-50 text-amber-700'
               : 'border-emerald-200 bg-emerald-50 text-emerald-700'
         }`}>
-          {error || warning || message}
+          <p>{error || warning || message}</p>
+          {duplicateReceipt && routes.receipts.detail(duplicateReceipt.id) && (
+            <Link href={routes.receipts.detail(duplicateReceipt.id)!} className="mt-2 inline-flex font-bold underline">
+              เปิดสลิปเดิม{duplicateReceipt.receiptNo ? ` เลขที่ ${duplicateReceipt.receiptNo}` : ''}
+            </Link>
+          )}
         </div>
       )}
 
@@ -719,7 +762,10 @@ export function ReceiptReviewClient({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="grid items-start gap-5 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
+        <ReceiptFilePreview receipt={receipt} />
+
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-blue-950">รายการจากสลิป</h2>
@@ -747,7 +793,7 @@ export function ReceiptReviewClient({
               </button>
             )}
             {!isPosted && (
-              <button disabled={postingReady || posting || matchingMaterials || repairingReceipt || savingHeader || readiness.ready === 0 || !effectiveSupplierId} type="button" onClick={postReadyItems} className="btn-primary">
+              <button disabled={postingReady || posting || matchingMaterials || repairingReceipt || savingHeader || readiness.ready === 0 || !effectiveSupplierId || receiptCalculation.issues.length > 0} type="button" onClick={postReadyItems} className="btn-primary">
                 {postingReady ? 'กำลังบันทึก...' : `บันทึกราคาที่พร้อมทั้งหมด (${readiness.ready})`}
               </button>
             )}
@@ -766,6 +812,8 @@ export function ReceiptReviewClient({
           <SummaryPill label="ต้องตรวจสอบ" value={readiness.needsReview} tone="amber" />
           <SummaryPill label="จบแล้ว/ข้าม" value={readiness.posted + readiness.ignored} tone="slate" />
         </div>
+
+        <ReceiptCalculationPanel result={receiptCalculation} />
 
         {!isPosted && (
           <div className="grid grid-cols-1 gap-3 border-b border-slate-100 p-4 md:grid-cols-[1.4fr_90px_110px_120px_120px_auto]">
@@ -816,8 +864,9 @@ export function ReceiptReviewClient({
                 const pendingMaterialDraft = hasPendingMaterialDraft(item)
                 const materialFlow = getReceiptItemMaterialFlow(item)
                 const actionValue = getReceiptItemAction(item)
+                const calculationIssue = itemCalculationIssues.get(item.id)
                 return (
-                <tr key={item.id}>
+                <tr key={item.id} className={calculationIssue ? 'bg-amber-50/40' : undefined}>
                   <td className="min-w-[260px]">
                     <input disabled={rowLocked || rowBusy} value={item.item_name_raw ?? ''} onChange={(e) => setItemField(item.id, 'item_name_raw', e.target.value)} className={inputClass} />
                   </td>
@@ -840,6 +889,11 @@ export function ReceiptReviewClient({
                   </td>
                   <td>
                     <input disabled={rowLocked || rowBusy} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
+                    {calculationIssue && (
+                      <p className="mt-1 min-w-48 text-[11px] font-semibold leading-4 text-amber-700">
+                        {calculationIssue.message}
+                      </p>
+                    )}
                   </td>
                   <td className="min-w-[280px]">
                     <MaterialPicker
@@ -909,6 +963,7 @@ export function ReceiptReviewClient({
             </tbody>
           </table>
         </div>
+        </section>
       </section>
 
       {candidateDraft && (
@@ -938,6 +993,88 @@ export function ReceiptReviewClient({
       <div className="flex justify-between">
         <Link href="/receipts" className="btn-secondary">กลับรายการสลิป</Link>
       </div>
+    </div>
+  )
+}
+
+function ReceiptFilePreview({ receipt }: { receipt: PurchaseReceipt }) {
+  const hasFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
+  const fileEndpoint = `/api/receipts/${encodeURIComponent(receipt.id)}/file`
+  const fileIdentity = receipt.file_storage_path || receipt.file_url || receipt.file_name || receipt.id
+  const fileName = receipt.file_name || 'ไฟล์สลิป'
+  const isPdf = receipt.file_mime_type === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')
+
+  return (
+    <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-28">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="font-bold text-blue-950">เอกสารต้นฉบับ</h2>
+          <p className="mt-1 truncate text-xs text-slate-500">{hasFile ? fileName : 'ยังไม่ได้แนบไฟล์'}</p>
+        </div>
+        {hasFile && (
+          <a href={fileEndpoint} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-bold text-blue-700 underline">
+            เปิดเต็มจอ
+          </a>
+        )}
+      </div>
+
+      <div className="flex min-h-80 items-center justify-center bg-slate-100 xl:h-[calc(100vh-11rem)] xl:max-h-[860px]">
+        {!hasFile ? (
+          <p className="px-6 text-center text-sm font-semibold text-slate-400">แนบรูปหรือ PDF เพื่อเปิดเทียบกับรายการ</p>
+        ) : isPdf ? (
+          <iframe
+            key={fileIdentity}
+            src={fileEndpoint}
+            title={`เอกสารต้นฉบับ ${fileName}`}
+            className="h-[70vh] min-h-[520px] w-full bg-white xl:h-full xl:min-h-0"
+          />
+        ) : (
+          <img
+            key={fileIdentity}
+            src={fileEndpoint}
+            alt={`เอกสารต้นฉบับ ${fileName}`}
+            className="max-h-[70vh] w-full object-contain xl:max-h-full"
+          />
+        )}
+      </div>
+    </aside>
+  )
+}
+
+function ReceiptCalculationPanel({ result }: { result: ReceiptCalculationResult }) {
+  const hasIssues = result.issues.length > 0
+  const hasCheckableData = result.checkedItemCount > 0 || result.itemTotal != null || result.expectedGrandTotal != null
+
+  return (
+    <div className={`border-b px-5 py-4 ${hasIssues ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-slate-50/70'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className={`text-sm font-bold ${hasIssues ? 'text-amber-900' : 'text-blue-950'}`}>ตรวจความถูกต้องของยอด</h3>
+          <p className={`mt-1 text-xs font-semibold ${hasIssues ? 'text-amber-700' : 'text-slate-500'}`}>
+            {hasIssues
+              ? `พบตัวเลขที่ต้องตรวจ ${result.issues.length} จุด`
+              : hasCheckableData
+                ? 'จำนวน ราคา และยอดรวมที่มีข้อมูลสัมพันธ์กัน'
+                : 'กรอกจำนวน ราคา/หน่วย และยอดรวมเพื่อให้ระบบช่วยตรวจ'}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-x-5 gap-y-1 text-right text-xs">
+          <span className="text-slate-500">รวมรายการ</span>
+          <span className="font-bold text-blue-950">{formatReceiptMoney(result.itemTotal)}</span>
+          <span className="text-slate-500">ยอดสุทธิที่ควรเป็น</span>
+          <span className="font-bold text-blue-950">{formatReceiptMoney(result.expectedGrandTotal)}</span>
+          <span className="text-slate-500">ตรวจสูตรรายบรรทัด</span>
+          <span className="font-bold text-blue-950">{result.checkedItemCount}/{result.itemCount}</span>
+        </div>
+      </div>
+
+      {hasIssues && (
+        <ul className="mt-3 space-y-1 text-xs font-semibold leading-5 text-amber-800">
+          {result.issues.slice(0, 8).map((issue) => (
+            <li key={`${issue.code}:${issue.itemId ?? 'summary'}`}>- {issue.message}</li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

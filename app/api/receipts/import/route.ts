@@ -5,9 +5,11 @@ import { createClient } from '@/lib/supabase/server'
 import {
   attachReceiptFile,
   applyExtractionToReceiptDraft,
+  calculateReceiptFileSha256,
 } from '@/lib/server/receipt-ai'
 import {
   ReceiptImportError,
+  assertReceiptIsNotDuplicate,
   createReceiptDraft,
   createReceiptDraftSchema,
   getReceiptById,
@@ -96,8 +98,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const supabase = await createClient()
+    const fileSha256 = await calculateReceiptFileSha256(file)
+    await assertReceiptIsNotDuplicate(supabase, { fileSha256 })
     const draft = await createReceiptDraft(supabase, createReceiptDraftSchema.parse({}), owner.id)
-    const attachedReceipt = await attachReceiptFile(supabase, draft.id, file, owner.id)
+    const attachedReceipt = await attachReceiptFile(supabase, draft.id, file, owner.id, { fileSha256 })
 
     if (!readAi) {
       const items = await listReceiptItems(supabase, draft.id)

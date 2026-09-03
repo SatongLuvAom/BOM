@@ -178,6 +178,11 @@ if (receiptCreate.includes('router.push(targetPath)') && receiptCreate.includes(
 
 const receiptRoute = read('app/api/receipts/route.ts')
 const receiptImportRoute = read('app/api/receipts/import/route.ts')
+const receiptAi = read('lib/server/receipt-ai.ts')
+const receiptImportServer = read('lib/server/receipt-import.ts')
+const receiptReview = read('components/receipts/ReceiptReviewClient.tsx')
+const receiptCalculations = read('lib/receipt-calculations.ts')
+const receiptDuplicateMigration = read('supabase/migrations/20260903_receipt_duplicate_detection.sql')
 if (receiptRoute.includes('redirectTo: getReceiptRedirectPath(data.id)')) {
   pass('blank receipt API returns receipt detail redirect')
 } else {
@@ -187,6 +192,67 @@ if (receiptImportRoute.includes('redirectTo: receiptId ? getReceiptRedirectPath(
   pass('receipt import API returns receipt detail redirect')
 } else {
   fail('receipt import API redirect shape is not deterministic')
+}
+
+if (
+  receiptAi.includes("'gemini-3.8-flash'")
+  && receiptAi.includes("'gemini-3.7-flash'")
+  && receiptAi.includes('GEMINI_RECEIPT_MODELS')
+) {
+  pass('receipt AI has current stable fallback models and an environment override')
+} else {
+  fail('receipt AI is missing a current stable fallback model or environment override')
+}
+if (
+  receiptAi.includes('MAX_GEMINI_MODELS = 5')
+  && receiptAi.includes('GEMINI_MODEL_NAME_PATTERN')
+) {
+  pass('receipt AI model override is validated and bounded')
+} else {
+  fail('receipt AI model override is not validated and bounded')
+}
+if (
+  receiptAi.includes('GEMINI_MODEL_TIMEOUT_MS')
+  && receiptAi.includes('status === 404')
+  && receiptAi.includes('status === 429')
+  && receiptAi.includes('status === 504')
+) {
+  pass('receipt AI fallback covers timeout, capacity, outage, and retired-model failures')
+} else {
+  fail('receipt AI fallback does not cover all expected transient model failures')
+}
+
+if (
+  receiptDuplicateMigration.includes('file_sha256')
+  && receiptDuplicateMigration.includes('receipt_no_normalized')
+  && receiptDuplicateMigration.includes('idx_purchase_receipts_file_sha256_unique')
+  && receiptImportServer.includes('assertReceiptIsNotDuplicate')
+  && receiptAi.includes('calculateReceiptFileSha256')
+) {
+  pass('receipt duplicate detection covers file hash and supplier/document number')
+} else {
+  fail('receipt duplicate detection is incomplete')
+}
+
+if (
+  receiptCalculations.includes('ITEM_TOTAL_MISMATCH')
+  && receiptCalculations.includes('SUBTOTAL_MISMATCH')
+  && receiptCalculations.includes('GRAND_TOTAL_MISMATCH')
+  && receiptImportServer.includes('getReceiptCalculationErrors')
+) {
+  pass('receipt arithmetic checks cover lines, subtotal, VAT, discount, and grand total')
+} else {
+  fail('receipt arithmetic validation is incomplete')
+}
+
+if (
+  receiptReview.includes('ReceiptFilePreview')
+  && receiptReview.includes('<iframe')
+  && receiptReview.includes('เอกสารต้นฉบับ')
+) {
+  pass('receipt review renders image/PDF beside the item table')
+} else {
+  fail('receipt review is missing the document preview')
 }
 
 const materialRoute = read('app/api/materials/[id]/route.ts')

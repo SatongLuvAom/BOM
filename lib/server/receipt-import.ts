@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { normalizeMaterialSearchText } from '@/lib/material-master'
+import { validateReceiptCalculations } from '@/lib/receipt-calculations'
 import { resolveMaterialSearchMatches } from '@/lib/server/material-search'
 import { writeAuditLog } from '@/lib/server-utils'
 
@@ -81,6 +82,83 @@ export class ReceiptImportError extends Error {
   ) {
     super(message)
   }
+}
+
+type ReceiptDuplicateCheck = {
+  fileSha256?: string | null
+  supplierId?: string | null
+  receiptNo?: string | null
+  excludeReceiptId?: string | null
+}
+
+const RECEIPT_DUPLICATE_SELECT = `
+  id,
+  receipt_no,
+  receipt_date,
+  supplier_id,
+  supplier_name_raw,
+  file_name,
+  status,
+  created_at
+`
+
+export async function assertReceiptIsNotDuplicate(supabase: any, input: ReceiptDuplicateCheck) {
+  const fileSha256 = input.fileSha256?.trim().toLowerCase() || null
+  if (fileSha256) {
+    let query = supabase
+      .from('purchase_receipts')
+      .select(RECEIPT_DUPLICATE_SELECT)
+      .eq('file_sha256', fileSha256)
+      .neq('status', 'rejected')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (input.excludeReceiptId) query = query.neq('id', input.excludeReceiptId)
+    const duplicate = await getReceiptDuplicate(query)
+    if (duplicate) throwReceiptDuplicate('file_hash', duplicate)
+  }
+
+  const normalizedReceiptNo = normalizeReceiptNumber(input.receiptNo)
+  if (!input.supplierId || !normalizedReceiptNo) return
+
+  let query = supabase
+    .from('purchase_receipts')
+    .select(RECEIPT_DUPLICATE_SELECT)
+    .eq('supplier_id', input.supplierId)
+    .eq('receipt_no_normalized', normalizedReceiptNo)
+    .neq('status', 'rejected')
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (input.excludeReceiptId) query = query.neq('id', input.excludeReceiptId)
+  const duplicate = await getReceiptDuplicate(query)
+  if (duplicate) throwReceiptDuplicate('supplier_receipt_no', duplicate)
+}
+
+function normalizeReceiptNumber(value: string | null | undefined) {
+  const normalized = String(value ?? '').trim().replace(/\s+/g, '').toUpperCase()
+  return normalized || null
+}
+
+async function getReceiptDuplicate(query: any) {
+  const { data, error } = await query.maybeSingle()
+  if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  return data ?? null
+}
+
+function throwReceiptDuplicate(matchType: 'file_hash' | 'supplier_receipt_no', existingReceipt: any): never {
+  const documentLabel = existingReceipt.receipt_no
+    ? ` เลขที่ ${existingReceipt.receipt_no}`
+    : ''
+  const message = matchType === 'file_hash'
+    ? `พบไฟล์สลิปนี้ในระบบแล้ว${documentLabel} กรุณาเปิดสลิปเดิมแทน`
+    : `พบ Supplier และเลขที่เอกสารนี้ในระบบแล้ว${documentLabel} กรุณาตรวจสลิปเดิมก่อนสร้างซ้ำ`
+
+  throw new ReceiptImportError(message, 409, 'DUPLICATE', {
+    matchType,
+    existingReceipt,
+    redirectTo: `/receipts/${encodeURIComponent(existingReceipt.id)}`,
+  })
 }
 
 export const RECEIPT_SELECT = `
@@ -266,6 +344,8 @@ export function isReceiptSchemaMissing(error: any) {
     text.includes('purchase_receipts') ||
     text.includes('purchase_receipt_items') ||
     text.includes('file_storage_path') ||
+    text.includes('file_sha256') ||
+    text.includes('receipt_no_normalized') ||
     text.includes('ai_raw_text') ||
     text.includes('ai_raw_json') ||
     text.includes('receipt_material_candidates') ||
@@ -279,6 +359,11 @@ export function isReceiptSchemaMissing(error: any) {
 }
 
 export async function createReceiptDraft(supabase: any, input: CreateReceiptDraftInput, userId: string) {
+  await assertReceiptIsNotDuplicate(supabase, {
+    supplierId: input.supplier_id,
+    receiptNo: input.receipt_no,
+  })
+
   const { data, error } = await supabase
     .from('purchase_receipts')
     .insert(normalizeReceiptPayload(input, userId))
@@ -304,6 +389,12 @@ export async function updateReceiptDraft(supabase: any, id: string, input: Updat
   if (existing.status === 'posted') {
     throw new ReceiptImportError('สลิปนี้ถูกบันทึกเข้าระบบแล้ว แก้ไขหัวสลิปไม่ได้', 400, 'BAD_REQUEST')
   }
+
+  await assertReceiptIsNotDuplicate(supabase, {
+    supplierId: input.supplier_id,
+    receiptNo: input.receipt_no,
+    excludeReceiptId: id,
+  })
 
   const { data, error } = await supabase
     .from('purchase_receipts')
@@ -528,6 +619,7 @@ export async function validateReceiptBeforePosting(supabase: any, id: string) {
   if (receipt.status === 'posted') errors.push('สลิปนี้ถูกบันทึกเข้าระบบแล้ว')
   if (!receipt.supplier_id) errors.push('ต้องเลือกซัพพลายเออร์ก่อนบันทึกราคา')
   if (!items.some((item: any) => item.action === 'update_price')) errors.push('ยังไม่มีรายการที่เลือกให้อัปเดตราคา')
+  errors.push(...getReceiptCalculationErrors(receipt, items))
 
   for (const item of items as any[]) {
     if (!item.action || item.action === 'needs_review' || item.review_status === 'needs_review') {
@@ -573,6 +665,10 @@ export async function postReadyReceiptItemsToPriceHistory(supabase: any, id: str
   if (!receipt.supplier_id) throw new ReceiptImportError('ต้องเลือกซัพพลายเออร์ก่อนบันทึกราคา', 400, 'VALIDATION_ERROR')
 
   const items = await listReceiptItems(supabase, id)
+  const calculationErrors = getReceiptCalculationErrors(receipt, items)
+  if (calculationErrors.length > 0) {
+    throw new ReceiptImportError('ยอดในสลิปยังไม่สัมพันธ์กัน กรุณาตรวจสอบก่อนบันทึกราคา', 400, 'VALIDATION_ERROR', calculationErrors)
+  }
   await ensureReceiptSupplierMappings(supabase, receipt, items)
 
   const data = await runReceiptPostRpc(supabase, 'fn_post_purchase_receipt_ready_items', id, userId)
@@ -586,6 +682,25 @@ export async function postReadyReceiptItemsToPriceHistory(supabase: any, id: str
   })
 
   return data
+}
+
+function getReceiptCalculationErrors(receipt: any, items: any[]) {
+  const result = validateReceiptCalculations({
+    header: {
+      subtotal: receipt.subtotal,
+      vat: receipt.vat,
+      discount: receipt.discount,
+      grandTotal: receipt.grand_total,
+    },
+    items: items.map((item: any) => ({
+      id: item.id,
+      lineNo: item.line_no,
+      qty: item.qty,
+      unitPrice: item.unit_price,
+      lineTotal: item.line_total,
+    })),
+  })
+  return result.issues.map((issue) => issue.message)
 }
 
 async function ensureReceiptSupplierMappings(supabase: any, receipt: any, items: any[]) {

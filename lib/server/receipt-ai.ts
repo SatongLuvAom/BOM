@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { normalizeMaterialSearchText } from '@/lib/material-master'
+import { validateReceiptCalculations } from '@/lib/receipt-calculations'
 import { writeAuditLog } from '@/lib/server-utils'
 import {
   RECEIPT_SELECT,
   ReceiptImportError,
+  assertReceiptIsNotDuplicate,
   getReceiptById,
   listReceiptItems,
 } from '@/lib/server/receipt-import'
@@ -13,11 +16,16 @@ import { fillMissingReceiptItemUoms } from '@/lib/server/receipt-uom'
 
 const RECEIPT_BUCKET = 'boq-attachments'
 const MAX_AI_FILE_SIZE = 10 * 1024 * 1024
-const GEMINI_MODEL_FALLBACK_ORDER = [
+const MAX_GEMINI_MODELS = 5
+const GEMINI_MODEL_TIMEOUT_MS = 60_000
+const DEFAULT_GEMINI_MODEL_FALLBACK_ORDER = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
   'gemini-3.5-flash',
-]
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+] as const
+const GEMINI_MODEL_NAME_PATTERN = /^gemini-[a-z0-9][a-z0-9.-]*$/
 
 const supportedMimeTypes = new Set([
   'image/jpeg',
@@ -305,6 +313,7 @@ async function callGemini(file: ReceiptFile) {
   if (!apiKey) {
     throw new ReceiptImportError('ยังไม่ได้ตั้งค่า GEMINI_API_KEY', 503, 'BAD_REQUEST')
   }
+  const models = getGeminiModelFallbackOrder()
 
   const baseParts = [
     {
@@ -327,8 +336,24 @@ async function callGemini(file: ReceiptFile) {
   }
 
   let lastFailure: { status: number; text: string; model: string } | null = null
-  for (const model of GEMINI_MODEL_FALLBACK_ORDER) {
-    const result = await requestGeminiModel(apiKey, model, baseBody)
+  for (const model of models) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), GEMINI_MODEL_TIMEOUT_MS)
+    let result: { ok: boolean; status: number; text: string; model: string }
+
+    try {
+      result = await requestGeminiModel(apiKey, model, baseBody, controller.signal)
+    } catch (error) {
+      result = {
+        ok: false,
+        status: 0,
+        model,
+        text: error instanceof Error ? error.message : 'Gemini network request failed',
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+
     if (result.ok) {
       return extractGeminiText(result.text)
     }
@@ -348,7 +373,37 @@ async function callGemini(file: ReceiptFile) {
   throw new ReceiptImportError('ไม่สามารถอ่านไฟล์นี้ได้ กรุณากรอกข้อมูลเอง', 502, 'BAD_REQUEST')
 }
 
-async function requestGeminiModel(apiKey: string, model: string, baseBody: Record<string, unknown>) {
+function getGeminiModelFallbackOrder() {
+  const configured = process.env.GEMINI_RECEIPT_MODELS?.trim()
+  if (!configured) return [...DEFAULT_GEMINI_MODEL_FALLBACK_ORDER]
+
+  const requestedModels = configured
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean)
+  const models = [...new Set(requestedModels)]
+
+  if (
+    models.length === 0
+    || models.length > MAX_GEMINI_MODELS
+    || models.some((model) => !GEMINI_MODEL_NAME_PATTERN.test(model))
+  ) {
+    throw new ReceiptImportError(
+      `GEMINI_RECEIPT_MODELS ต้องเป็นชื่อโมเดล gemini-* คั่นด้วย comma และไม่เกิน ${MAX_GEMINI_MODELS} รุ่น`,
+      503,
+      'BAD_REQUEST',
+    )
+  }
+
+  return models
+}
+
+async function requestGeminiModel(
+  apiKey: string,
+  model: string,
+  baseBody: Record<string, unknown>,
+  signal: AbortSignal,
+) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
   const headers = {
     'Content-Type': 'application/json',
@@ -359,6 +414,7 @@ async function requestGeminiModel(apiKey: string, model: string, baseBody: Recor
     method: 'POST',
     headers,
     body: JSON.stringify(baseBody),
+    signal,
   })
 
   if (!res.ok && res.status === 400) {
@@ -372,6 +428,7 @@ async function requestGeminiModel(apiKey: string, model: string, baseBody: Recor
           response_mime_type: 'application/json',
         },
       }),
+      signal,
     })
   }
 
@@ -386,9 +443,14 @@ async function requestGeminiModel(apiKey: string, model: string, baseBody: Recor
 function shouldFallbackGeminiModel(status: number, responseText: string) {
   const text = responseText.toLowerCase()
   return (
-    status === 429
+    status === 0
+    || status === 404
+    || status === 408
+    || status === 429
     || status === 500
+    || status === 502
     || status === 503
+    || status === 504
     || text.includes('resource_exhausted')
     || text.includes('unavailable')
     || text.includes('overloaded')
@@ -454,15 +516,28 @@ export function validateReceiptExtraction(rawText: string): ReceiptExtraction {
     }
   }).filter((item) => item.name || item.rawText)
 
-  const grandTotal = toPositiveNumber(raw.receipt?.grandTotal, warnings, 'ยอดรวมสุทธิ')
-  const itemTotal = items.reduce((sum, item) => sum + (item.lineTotal ?? 0), 0)
-  if (grandTotal && itemTotal > 0 && Math.abs(grandTotal - itemTotal) > Math.max(2, grandTotal * 0.02)) {
-    warnings.push('ยอดรวมในหัวสลิปไม่ตรงกับผลรวมรายการ กรุณาตรวจสอบอีกครั้ง')
-  }
-
   if (items.length === 0) {
     warnings.push('AI ไม่พบรายการสินค้า กรุณาเพิ่มรายการด้วยตัวเอง')
   }
+
+  const receipt = {
+    receiptNo: cleanText(raw.receipt?.receiptNo),
+    date: parseReceiptDate(raw.receipt?.date),
+    subtotal: toPositiveNumber(raw.receipt?.subtotal, warnings, 'Subtotal'),
+    vat: toPositiveNumber(raw.receipt?.vat, warnings, 'VAT'),
+    discount: toPositiveNumber(raw.receipt?.discount, warnings, 'Discount'),
+    grandTotal: toPositiveNumber(raw.receipt?.grandTotal, warnings, 'ยอดรวมสุทธิ'),
+  }
+  const calculation = validateReceiptCalculations({
+    header: receipt,
+    items: items.map((item) => ({
+      lineNo: item.lineNo,
+      qty: item.qty,
+      unitPrice: item.unitPrice,
+      lineTotal: item.lineTotal,
+    })),
+  })
+  warnings.push(...calculation.issues.map((issue) => issue.message))
 
   return {
     supplier: {
@@ -470,14 +545,7 @@ export function validateReceiptExtraction(rawText: string): ReceiptExtraction {
       taxId: cleanText(raw.supplier?.taxId),
       phone: cleanText(raw.supplier?.phone),
     },
-    receipt: {
-      receiptNo: cleanText(raw.receipt?.receiptNo),
-      date: parseReceiptDate(raw.receipt?.date),
-      subtotal: toPositiveNumber(raw.receipt?.subtotal, warnings, 'Subtotal'),
-      vat: toPositiveNumber(raw.receipt?.vat, warnings, 'VAT'),
-      discount: toPositiveNumber(raw.receipt?.discount, warnings, 'Discount'),
-      grandTotal,
-    },
+    receipt,
     items,
     confidence: normalizeConfidence(raw.confidence),
     warnings: Array.from(new Set(warnings)),
@@ -512,6 +580,11 @@ export async function applyExtractionToReceiptDraft(
 
   const file = await loadReceiptFile(supabase, receipt)
   const extracted = await extractReceiptWithGemini(file)
+  await assertReceiptIsNotDuplicate(supabase, {
+    supplierId: receipt.supplier_id,
+    receiptNo: extracted.receipt.receiptNo,
+    excludeReceiptId: receiptId,
+  })
 
   if (existingItems.length > 0 && options.replaceItems) {
     const { error: deleteError } = await supabase
@@ -617,6 +690,7 @@ export async function attachReceiptFile(
   receiptId: string,
   file: File,
   userId: string,
+  options: { fileSha256?: string } = {},
 ) {
   const receipt = await getReceiptById(supabase, receiptId)
   if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
@@ -632,6 +706,12 @@ export async function attachReceiptFile(
     throw new ReceiptImportError('ไฟล์ใหญ่เกิน 10 MB', 400, 'BAD_REQUEST')
   }
 
+  const fileSha256 = options.fileSha256 ?? await calculateReceiptFileSha256(file)
+  await assertReceiptIsNotDuplicate(supabase, {
+    fileSha256,
+    excludeReceiptId: receiptId,
+  })
+
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
   const path = `receipts/${receiptId}/${Date.now()}_${safeName}`
   const { error: uploadError } = await supabase.storage
@@ -640,10 +720,6 @@ export async function attachReceiptFile(
 
   if (uploadError) throw new ReceiptImportError(uploadError.message, 500, 'DATABASE_ERROR', uploadError)
 
-  if (receipt.file_storage_path) {
-    await supabase.storage.from(RECEIPT_BUCKET).remove([receipt.file_storage_path])
-  }
-
   const { data, error } = await supabase
     .from('purchase_receipts')
     .update({
@@ -651,12 +727,26 @@ export async function attachReceiptFile(
       file_url: null,
       file_name: file.name,
       file_mime_type: mimeType,
+      file_sha256: fileSha256,
     })
     .eq('id', receiptId)
     .select(RECEIPT_SELECT)
     .single()
 
-  if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  if (error) {
+    await supabase.storage.from(RECEIPT_BUCKET).remove([path])
+    if (error.code === '23505') {
+      await assertReceiptIsNotDuplicate(supabase, {
+        fileSha256,
+        excludeReceiptId: receiptId,
+      })
+    }
+    throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  }
+
+  if (receipt.file_storage_path && receipt.file_storage_path !== path) {
+    await supabase.storage.from(RECEIPT_BUCKET).remove([receipt.file_storage_path])
+  }
 
   await writeAuditLog({
     entityType: 'purchase_receipt',
@@ -667,6 +757,11 @@ export async function attachReceiptFile(
   })
 
   return data
+}
+
+export async function calculateReceiptFileSha256(file: File) {
+  const bytes = Buffer.from(await file.arrayBuffer())
+  return createHash('sha256').update(bytes).digest('hex')
 }
 
 export async function createReceiptFileSignedUrl(supabase: any, receiptId: string) {

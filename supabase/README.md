@@ -80,7 +80,8 @@ For a fresh database using the current application, apply the additive SQL in th
 20. supabase/migrations/20260824_material_delete_atomic.sql
 21. supabase/migrations/20260824_material_list_query_rpc.sql
 22. supabase/migrations/20260902_material_list_page_payload.sql
-23. Run supabase/schema_audit.sql again
+23. supabase/migrations/20260903_receipt_duplicate_detection.sql
+24. Run supabase/schema_audit.sql again
 ```
 
 Do not combine this path with `sql/phase1_single_user_production.sql` or `sql/phase1_single_user_production_core_only.sql`; those are alternative historical hardening paths. Keep the database password out of the repository. `supabase db query --linked` requires a locally supplied `SUPABASE_DB_PASSWORD`, or the audit can be pasted into the Supabase SQL Editor.

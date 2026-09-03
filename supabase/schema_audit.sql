@@ -107,6 +107,8 @@ expected_columns(schema_name, table_name, column_name, phase) AS (
     ('public', 'purchase_receipts', 'file_storage_path', 'receipt-ai'),
     ('public', 'purchase_receipts', 'ai_raw_text', 'receipt-ai'),
     ('public', 'purchase_receipts', 'ai_raw_json', 'receipt-ai'),
+    ('public', 'purchase_receipts', 'file_sha256', 'receipt-duplicate'),
+    ('public', 'purchase_receipts', 'receipt_no_normalized', 'receipt-duplicate'),
     ('public', 'purchase_receipt_items', 'material_candidate_id', 'receipt-candidate'),
     ('public', 'purchase_receipt_items', 'material_resolution_status', 'receipt-candidate')
 ),
