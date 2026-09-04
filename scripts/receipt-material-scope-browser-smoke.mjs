@@ -30,7 +30,7 @@ let searchFailure = false
 let staleSearch = false
 const requests = []
 const { outputFiles } = await build({
-  stdin: { contents: `import {createRoot} from 'react-dom/client'; import {ReceiptReviewClient} from './components/receipts/ReceiptReviewClient'; const props=${JSON.stringify(props)}; if(location.search==='?legacy') props.initialItems=[{...props.initialItems[0],material_id:'${a}',material:${JSON.stringify(materials[0])},review_status:'reviewed',action:'update_price'}]; createRoot(document.getElementById('root')).render(<ReceiptReviewClient {...props}/>);`, resolveDir: root, loader: 'tsx' },
+  stdin: { contents: `import {createRoot} from 'react-dom/client'; import {ReceiptReviewClient} from './components/receipts/ReceiptReviewClient'; const props=${JSON.stringify(props)}; if(location.search==='?legacy') props.initialItems=[{...props.initialItems[0],material_id:'${a}',material:${JSON.stringify(materials[0])},review_status:'reviewed',action:'update_price'}]; if(location.search==='?unconfirmed'){props.initialReceipt.supplier_id=null;props.initialItems[0].suggested_material=${JSON.stringify(materials[0])};} createRoot(document.getElementById('root')).render(<ReceiptReviewClient {...props}/>);`, resolveDir: root, loader: 'tsx' },
   absWorkingDir: root, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' }, alias: { '@': root },
   plugins: [{ name: 'next-router-test-boundary', setup(build) {
@@ -133,6 +133,11 @@ try {
   const readyButton = page.getByRole('button',{name:/บันทึกราคาที่พร้อมทั้งหมด/})
   assert.ok(await readyButton.isDisabled(), 'legacy selection without supplier review must not be shown as ready')
   console.log('PASS: legacy selections without supplier context require review')
+  await page.goto(base+'?unconfirmed')
+  await page.getByRole('button',{name:'สร้างร้านใหม่จากสลิป',exact:true}).waitFor()
+  assert.equal(await page.getByText('พบวัสดุใกล้เคียง',{exact:true}).count(),0,'unconfirmed shop must not show old global suggestions')
+  assert.deepEqual(errors,[])
+  console.log('PASS: an unconfirmed shop never displays a legacy global material suggestion')
   console.log('PASS: zero browser runtime errors')
 } finally {
   await browser?.close()

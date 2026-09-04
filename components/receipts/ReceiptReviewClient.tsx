@@ -1357,7 +1357,7 @@ function MaterialPicker({
   const materialCandidate = item.material_candidate
   const matchCandidates = (item.match_candidates?.length
     ? item.match_candidates
-    : suggested && item.material_supplier_id === supplierId
+    : supplierId && suggested && item.material_supplier_id === supplierId
       ? [{ ...suggested, match_confidence: item.match_confidence, match_reason: item.match_reason } as MaterialCandidate]
       : []
   ).slice(0, 3)
