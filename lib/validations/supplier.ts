@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeReceiptSupplierTaxId } from '@/lib/receipt-supplier-match'
 
 const optionalText = (max: number) => z
   .union([z.string().max(max), z.literal(''), z.null()])
@@ -28,6 +29,16 @@ export const createSupplierSchema = z.object({
 })
 
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>
+
+export const createReceiptSupplierSchema = createSupplierSchema.extend({
+  source_receipt_id: z.string().uuid(),
+  confirm_supplier: z.literal(true, { errorMap: () => ({ message: 'กรุณายืนยันข้อมูลร้านก่อนสร้าง' }) }),
+  status: z.literal('ACTIVE').default('ACTIVE'),
+  tax_id: optionalText(32).transform(normalizeReceiptSupplierTaxId).refine(
+    (value) => value === '' || /^\d{13}$/.test(value),
+    'เลขผู้เสียภาษีต้องมี 13 หลัก หากไม่ทราบให้เว้นว่าง',
+  ),
+})
 
 export const updateSupplierSchema = createSupplierSchema.partial()
 export type UpdateSupplierInput = z.infer<typeof updateSupplierSchema>

@@ -46,13 +46,6 @@ type MaterialMatchRow = {
   uom?: UomRelation | null
 }
 
-type AliasRow = {
-  material_id: string | null
-  material_uuid?: string | null
-  alias_name: string | null
-  normalized_alias: string | null
-}
-
 type MatchContext = {
   materials: MaterialMatchRow[]
   aliasesByMaterialId: Map<string, string[]>
@@ -75,6 +68,7 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
   if (receiptError) throw new ReceiptImportError(receiptError.message, 500, 'DATABASE_ERROR', receiptError)
   if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
   if (receipt.status === 'posted') throw new ReceiptImportError('สลิปนี้ถูกบันทึกเข้าระบบแล้ว จับคู่วัสดุไม่ได้', 400, 'BAD_REQUEST')
+  if (!receipt.supplier_id) throw new ReceiptImportError('กรุณายืนยันร้านค้าและบันทึก Draft ก่อนจับคู่วัสดุ', 400, 'VALIDATION_ERROR')
 
   const [{ data: items, error: itemError }, context] = await Promise.all([
     supabase
@@ -103,13 +97,13 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
           suggested_material_id: null,
           material_resolution_status: 'unresolved',
           match_confidence: null,
-          match_reason: appendReason(item.match_reason, 'ไม่พบวัสดุในระบบ'),
+          match_reason: appendReason(item.match_reason, 'ไม่พบวัสดุที่ผูกกับร้านนี้'),
           review_status: 'needs_review',
         },
       }
     }
 
-    const highConfidence = best.score >= 90
+    const highConfidence = best.score >= 90 && (!candidates[1] || best.score - candidates[1].score >= 5)
     const nextAction = highConfidence && (!item.action || item.action === 'needs_review') ? 'update_price' : item.action
     const nextUomId = !item.uom_id && highConfidence ? best.material.base_uom_id : item.uom_id
     const nextUomRaw = !item.uom_id && highConfidence ? best.material.base_uom : item.uom_raw
@@ -127,6 +121,7 @@ export async function autoMatchReceiptItemMaterials(supabase: any, receiptId: st
       hasCandidate: true,
       patch: {
         material_id: highConfidence ? best.material.id : null,
+        material_supplier_id: highConfidence ? receipt.supplier_id : null,
         suggested_material_id: best.material.id,
         material_resolution_status: highConfidence ? 'matched_existing' : 'unresolved',
         uom_id: nextUomId,
@@ -203,56 +198,53 @@ export async function enrichReceiptItemsWithMaterialCandidates(supabase: any, it
 }
 
 async function loadMaterialMatchContext(supabase: any, supplierId?: string | null): Promise<MatchContext> {
-  const supplierPromise = supplierId
-    ? supabase
+  const context: MatchContext = { materials: [], aliasesByMaterialId: new Map(), supplierMaterialIds: new Set() }
+  if (!supplierId) return context
+
+  // Scope before fetching material data. Page through this shop only, never the whole catalog.
+  for (let offset = 0; ; offset += 500) {
+    const { data: supplierMaps, error } = await supabase
       .from('mat_supplier_map')
-      .select('material_id, material_uuid')
+      .select(`material_id, material_uuid, supplier_sku, supplier_material_name,
+        material:mat_master!mat_supplier_map_material_id_fkey(
+          id, material_id, material_code, mat_name_th, mat_name_en, normalized_name,
+          brand, model, spec, code_spec_key, base_uom, base_uom_id, is_deleted, status,
+          category:mat_category!mat_master_cat_id_fkey(cat_code, cat_name_th),
+          uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
+        )`)
       .eq('is_deleted', false)
-      .eq('supplier_id', supplierId)
-      .limit(5000)
-    : Promise.resolve({ data: [], error: null })
+      .eq('is_active', true)
+      // Receipts reference supplier.id (UUID), not the legacy supplier.supplier_id.
+      .eq('supplier_uuid', supplierId)
+      .order('material_id')
+      .range(offset, offset + 499)
 
-  const [{ data: materials, error: materialError }, { data: aliases, error: aliasError }, { data: supplierMaps, error: supplierError }] = await Promise.all([
-    supabase
-      .from('mat_master')
-      .select(`
-        id,
-        material_id,
-        material_code,
-        mat_name_th,
-        mat_name_en,
-        normalized_name,
-        brand,
-        model,
-        spec,
-        code_spec_key,
-        base_uom,
-        base_uom_id,
-        category:mat_category!mat_master_cat_id_fkey(cat_code, cat_name_th),
-        uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
-      `)
-      .eq('is_deleted', false)
-      .limit(3000),
-    supabase
-      .from('mat_alias')
-      .select('material_id, material_uuid, alias_name, normalized_alias')
-      .eq('is_deleted', false)
-      .limit(5000),
-    supplierPromise,
-  ])
-
-  if (materialError) throw new ReceiptImportError(materialError.message, 500, 'DATABASE_ERROR', materialError)
-  if (aliasError) throw new ReceiptImportError(aliasError.message, 500, 'DATABASE_ERROR', aliasError)
-  if (supplierError) throw new ReceiptImportError(supplierError.message, 500, 'DATABASE_ERROR', supplierError)
-
-  return {
-    materials: (materials ?? []) as MaterialMatchRow[],
-    aliasesByMaterialId: groupAliases((aliases ?? []) as AliasRow[]),
-    supplierMaterialIds: new Set((supplierMaps ?? []).flatMap((row: { material_id: string | null; material_uuid?: string | null }) => [
-      row.material_id,
-      row.material_uuid,
-    ]).filter(Boolean) as string[]),
+    if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+    for (const row of supplierMaps ?? []) {
+      const material = row.material
+      if (!material || material.is_deleted || material.status !== 'ACTIVE') continue
+      context.materials.push(material)
+      context.supplierMaterialIds.add(material.id)
+      // Shop-specific names/SKUs must not leak from another supplier's mapping.
+      context.aliasesByMaterialId.set(material.id, [row.supplier_material_name, row.supplier_sku].filter(Boolean))
+    }
+    if ((supplierMaps ?? []).length < 500) break
   }
+  return context
+}
+
+export async function searchSupplierMaterialCandidates(supabase: any, supplierId: string, search: string, limit = 8) {
+  const normalized = normalizeMaterialSearchText(search)
+  if (normalized.length < 2) return []
+  const context = await loadMaterialMatchContext(supabase, supplierId)
+  const tokens = normalized.split(' ').filter(Boolean)
+  return context.materials.filter((material) => {
+    const text = normalizeMaterialSearchText([
+      material.material_id, material.material_code, material.mat_name_th, material.mat_name_en,
+      material.spec, material.brand, material.model, ...getMaterialAliases(material, context.aliasesByMaterialId),
+    ].filter(Boolean).join(' '))
+    return tokens.every((token) => text.includes(token))
+  }).slice(0, Math.min(10, limit)).map((material) => toMaterialCandidate({ material, score: 100, reason: 'วัสดุที่ผูกกับร้านนี้' }))
 }
 
 function findMaterialCandidatesForReceiptItem(item: ReceiptMatchItem, context: MatchContext, limit: number) {
@@ -371,20 +363,6 @@ function toMaterialCandidate(result: MatchResult) {
 
 function getMaterialLabel(material: MaterialMatchRow) {
   return material.material_code ?? material.mat_name_th ?? material.mat_name_en ?? material.material_id
-}
-
-function groupAliases(rows: AliasRow[]) {
-  const aliases = new Map<string, string[]>()
-  for (const row of rows) {
-    const keys = [row.material_id, row.material_uuid].filter(Boolean) as string[]
-    if (keys.length === 0) continue
-    const values = [row.alias_name, row.normalized_alias].filter(Boolean) as string[]
-    if (values.length === 0) continue
-    for (const key of keys) {
-      aliases.set(key, [...(aliases.get(key) ?? []), ...values])
-    }
-  }
-  return aliases
 }
 
 function getMaterialKeys(material: MaterialMatchRow) {

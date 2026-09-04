@@ -13,6 +13,10 @@ export interface ReceiptSupplier {
   supplier_id: string
   supplier_code: string | null
   supplier_name_th: string
+  supplier_name_en?: string | null
+  tax_id?: string | null
+  phone?: string | null
+  status?: 'ACTIVE' | 'INACTIVE'
 }
 
 export interface PurchaseReceipt {
@@ -149,6 +153,7 @@ export interface PurchaseReceiptItem {
   discount_amount: number | null
   suggested_material_id: string | null
   material_id: string | null
+  material_supplier_id: string | null
   material_candidate_id: string | null
   material_resolution_status: 'matched_existing' | 'candidate_created' | 'create_material_needed' | 'ignored' | 'unresolved' | null
   match_confidence: number | null

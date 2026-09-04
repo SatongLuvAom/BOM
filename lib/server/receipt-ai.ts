@@ -10,8 +10,6 @@ import {
   getReceiptById,
   listReceiptItems,
 } from '@/lib/server/receipt-import'
-import { autoMatchReceiptItemMaterials } from '@/lib/server/receipt-material-match'
-import { generateReceiptMaterialCandidates } from '@/lib/server/receipt-material-candidates'
 import { fillMissingReceiptItemUoms } from '@/lib/server/receipt-uom'
 
 const RECEIPT_BUCKET = 'boq-attachments'
@@ -38,6 +36,8 @@ const rawExtractionSchema = z.object({
     name: z.union([z.string(), z.null()]).optional(),
     taxId: z.union([z.string(), z.null()]).optional(),
     phone: z.union([z.string(), z.null()]).optional(),
+    address: z.union([z.string(), z.null()]).optional(),
+    email: z.union([z.string(), z.null()]).optional(),
   }).optional(),
   receipt: z.object({
     receiptNo: z.union([z.string(), z.null()]).optional(),
@@ -81,6 +81,8 @@ export type ReceiptExtraction = {
     name: string | null
     taxId: string | null
     phone: string | null
+    address: string | null
+    email: string | null
   }
   receipt: {
     receiptNo: string | null
@@ -262,7 +264,9 @@ function receiptExtractionPrompt() {
 คุณคือระบบอ่านข้อความจากสลิปซื้อวัสดุ/ใบกำกับภาษี/ใบเสร็จสำหรับงาน BOQ และ Material Master
 
 งานของคุณ:
-- อ่านชื่อร้าน/ซัพพลายเออร์, Tax ID, เบอร์โทร ถ้ามี
+- อ่านชื่อร้าน/ซัพพลายเออร์, Tax ID, เบอร์โทร, ที่อยู่ และอีเมลของผู้ขายหรือผู้ออกเอกสารเท่านั้น ถ้าไม่มีให้ใส่ null ห้ามเดาเพิ่ม
+- ห้ามนำข้อมูลผู้ซื้อ ลูกค้า ผู้รับสินค้า หรือที่อยู่จัดส่งมาใส่ใน supplier
+- ถ้าแยกผู้ขายกับผู้ซื้อไม่ได้ ให้ใส่ข้อมูล supplier ที่ไม่แน่ใจเป็น null และแจ้งใน warnings
 - อ่านเลขที่เอกสาร, วันที่, subtotal, VAT, discount, grand total
 - อ่านรายการสินค้าเป็นบรรทัด พร้อมจำนวน หน่วย ราคา/หน่วย และราคารวม
 
@@ -281,7 +285,9 @@ function receiptExtractionPrompt() {
   "supplier": {
     "name": "string | null",
     "taxId": "string | null",
-    "phone": "string | null"
+    "phone": "string | null",
+    "address": "string | null",
+    "email": "string | null"
   },
   "receipt": {
     "receiptNo": "string | null",
@@ -544,6 +550,8 @@ export function validateReceiptExtraction(rawText: string): ReceiptExtraction {
       name: cleanText(raw.supplier?.name),
       taxId: cleanText(raw.supplier?.taxId),
       phone: cleanText(raw.supplier?.phone),
+      address: cleanText(raw.supplier?.address),
+      email: cleanText(raw.supplier?.email),
     },
     receipt,
     items,
@@ -663,13 +671,12 @@ export async function applyExtractionToReceiptDraft(
     createdBy: options.userId,
   })
 
-  const matched = rows.length > 0
-    ? await fillAndMatchExtractedItems(supabase, receiptId, options.userId)
-    : { items: await listReceiptItems(supabase, receiptId) }
+  // Extraction must not choose materials before the user has reviewed the seller.
+  if (rows.length > 0) await fillMissingReceiptItemUoms(supabase, receiptId, options.userId)
 
   return {
     receipt: updatedReceipt,
-    items: matched.items,
+    items: await listReceiptItems(supabase, receiptId),
     extraction: {
       confidence: extracted.confidence,
       warnings: extracted.warnings,
@@ -677,12 +684,6 @@ export async function applyExtractionToReceiptDraft(
       replacedItems: existingItems.length,
     },
   }
-}
-
-async function fillAndMatchExtractedItems(supabase: any, receiptId: string, userId: string) {
-  await fillMissingReceiptItemUoms(supabase, receiptId, userId)
-  await autoMatchReceiptItemMaterials(supabase, receiptId, userId)
-  return generateReceiptMaterialCandidates(supabase, receiptId, userId)
 }
 
 export async function attachReceiptFile(

@@ -30,7 +30,7 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
       getReceiptById(supabase, id),
       supabase
         .from('supplier')
-        .select('id, supplier_id, supplier_code, supplier_name_th')
+        .select('id, supplier_id, supplier_code, supplier_name_th, supplier_name_en, tax_id, phone, status')
         .eq('is_deleted', false)
         .order('supplier_name_th'),
       supabase

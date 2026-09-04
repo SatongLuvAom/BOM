@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
+import { SupplierForm } from '@/components/mat/SupplierForm'
 import {
   formatReceiptMoney,
   validateReceiptCalculations,
@@ -13,6 +14,7 @@ import {
   type ReceiptDuplicateNotice,
 } from '@/lib/receipt-duplicate-response'
 import { routes } from '@/lib/routes'
+import { getReceiptSupplierDraft, matchReceiptSuppliers } from '@/lib/receipt-supplier-match'
 import type {
   MaterialCandidate,
   PurchaseReceipt,
@@ -66,7 +68,7 @@ const actionOptions: { value: ReceiptItemAction; label: string }[] = [
 export function ReceiptReviewClient({
   initialReceipt,
   initialItems,
-  suppliers,
+  suppliers: initialSuppliers,
   uoms,
   categories,
   materialTypes,
@@ -83,6 +85,9 @@ export function ReceiptReviewClient({
   initialWarning?: string | null
 }) {
   const [receipt, setReceipt] = useState(initialReceipt)
+  const [suppliers, setSuppliers] = useState(initialSuppliers)
+  const [newSupplierDraft, setNewSupplierDraft] = useState<ReturnType<typeof getReceiptSupplierDraft> | null>(null)
+  const supplierDialog = useRef<HTMLDialogElement>(null)
   const [items, setItems] = useState(initialItems)
   const [header, setHeader] = useState<HeaderForm>(() => toHeaderForm(initialReceipt))
   const [newItem, setNewItem] = useState<NewItemForm>(emptyNewItem)
@@ -109,7 +114,14 @@ export function ReceiptReviewClient({
   const isPosted = receipt.status === 'posted'
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
   const hasAiExtraction = Boolean(receipt.ai_raw_json || receipt.ai_raw_text)
-  const effectiveSupplierId = header.supplier_id || receipt.supplier_id || null
+  const effectiveSupplierId = header.supplier_id || null
+  const supplierConfirmed = Boolean(receipt.supplier_id && header.supplier_id === receipt.supplier_id)
+  const supplierSelectionLocked = isPosted || Boolean(newSupplierDraft) || readingAi || savingHeader || matchingMaterials || posting || postingReady || creatingCandidates || repairingReceipt || uploadingFile
+  const supplierMatches = matchReceiptSuppliers({
+    ...receipt,
+    supplier_name_raw: header.supplier_name_raw,
+    supplier_tax_id_raw: header.supplier_tax_id_raw,
+  }, suppliers)
   const receiptCalculation = useMemo(() => validateReceiptCalculations({
     header: {
       subtotal: header.subtotal,
@@ -134,11 +146,24 @@ export function ReceiptReviewClient({
     ...buildPostBlockers({ ...receipt, supplier_id: effectiveSupplierId }, items),
     ...receiptCalculation.issues.map((issue) => issue.message),
   ])), [effectiveSupplierId, receipt, receiptCalculation.issues, items])
-  const readiness = useMemo(() => buildReadinessSummary(items, isPosted), [items, isPosted])
+  const readiness = useMemo(() => buildReadinessSummary(items, isPosted, effectiveSupplierId), [items, isPosted, effectiveSupplierId])
   const receiptFlowStatus = useMemo(
     () => buildReceiptFlowStatus(receipt.status, Boolean(effectiveSupplierId), items.length, readiness, postBlockers.length),
     [receipt.status, effectiveSupplierId, items.length, readiness, postBlockers.length],
   )
+
+  useEffect(() => {
+    if (newSupplierDraft) supplierDialog.current?.showModal()
+  }, [newSupplierDraft])
+
+  function selectCreatedOrExistingSupplier(supplier: ReceiptSupplier, created: boolean) {
+    setSuppliers((current) => [...current.filter((existing) => existing.id !== supplier.id), supplier])
+    setHeaderField('supplier_id', supplier.id)
+    setNewSupplierDraft(null)
+    setMessage(created
+      ? 'สร้างร้านแล้ว ยังไม่ได้ผูกกับสลิป กรุณากดยืนยันร้านและบันทึก Draft'
+      : 'เลือกร้านเดิมแล้ว กรุณาตรวจและบันทึก Draft')
+  }
 
   useEffect(() => {
     try {
@@ -198,7 +223,9 @@ export function ReceiptReviewClient({
     clearMessages()
     try {
       await saveHeaderDraft()
-      setMessage('บันทึก Draft แล้ว')
+      setMessage(header.supplier_id
+        ? 'ยืนยันร้านค้าและบันทึก Draft แล้ว สามารถกดจับคู่วัสดุได้'
+        : 'บันทึก Draft แล้ว กรุณาเลือกร้านค้าก่อนจับคู่วัสดุ')
     } catch (error) {
       setError(error instanceof Error ? error.message : 'บันทึก Draft ไม่สำเร็จ')
     } finally {
@@ -207,6 +234,10 @@ export function ReceiptReviewClient({
   }
 
   async function saveHeaderDraft() {
+    if (receipt.supplier_id && header.supplier_id !== receipt.supplier_id
+      && !confirm('เปลี่ยนร้านแล้วจะต้องตรวจและเลือกวัสดุทุกรายการใหม่ ราคาที่บันทึกแล้วจะไม่ถูกเปลี่ยน ยืนยันเปลี่ยนร้านหรือไม่?')) {
+      throw new Error('ยังไม่ได้เปลี่ยนร้าน')
+    }
     const res = await fetch(`/api/receipts/${receipt.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -222,12 +253,13 @@ export function ReceiptReviewClient({
     }
     setReceipt(json.data)
     setHeader(toHeaderForm(json.data))
+    if (json.items) setItems(json.items)
     return json.data as PurchaseReceipt
   }
 
   async function ensureHeaderSavedBeforePosting() {
-    if (!header.supplier_id) {
-      throw new Error('ต้องเลือกซัพพลายเออร์ก่อนบันทึกราคา')
+    if (!supplierConfirmed) {
+      throw new Error('กรุณายืนยันร้านและตรวจวัสดุให้ตรงกับร้านก่อนบันทึกราคา')
     }
 
     return saveHeaderDraft()
@@ -266,12 +298,16 @@ export function ReceiptReviewClient({
     }
   }
 
-  async function saveItem(item: PurchaseReceiptItem, patch?: Partial<PurchaseReceiptItem>) {
+  async function saveItem(item: PurchaseReceiptItem, patch?: Partial<PurchaseReceiptItem>, confirmSupplierLink = false) {
     if (item.review_status === 'posted') return
+    if (header.supplier_id !== (receipt.supplier_id ?? '')) {
+      setError('กรุณายืนยันร้านและบันทึก Draft ก่อนแก้ไขรายการ')
+      return false
+    }
     clearMessages()
     setItemBusy(item.id, true)
     try {
-    const payload = toItemPayload({ ...item, ...patch })
+    const payload = { ...toItemPayload({ ...item, ...patch }), expected_supplier_id: receipt.supplier_id, confirm_supplier_link: confirmSupplierLink }
     const res = await fetchWithTimeout(`/api/receipts/${receipt.id}/items/${item.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -288,6 +324,7 @@ export function ReceiptReviewClient({
     }
     setItems((current) => current.map((row) => row.id === item.id ? mergeReceiptItem(row, json.data) : row))
     setMessage('บันทึกรายการแล้ว')
+    return true
     } catch (error) {
       setError(error instanceof Error ? error.message : 'บันทึกรายการไม่สำเร็จ')
     } finally {
@@ -400,6 +437,10 @@ export function ReceiptReviewClient({
 
   async function autoMatchMaterials() {
     if (isPosted || matchingMaterials) return
+    if (!supplierConfirmed) {
+      setError('กรุณายืนยันร้านค้าและบันทึก Draft ก่อนจับคู่วัสดุ')
+      return
+    }
     setMatchingMaterials(true)
     clearMessages()
     try {
@@ -418,6 +459,10 @@ export function ReceiptReviewClient({
 
   async function createMaterialCandidates(itemIds?: string[]) {
     if (isPosted || creatingCandidates) return
+    if (!supplierConfirmed) {
+      setError('กรุณายืนยันร้านค้าและบันทึก Draft ก่อนสร้าง Draft วัสดุ')
+      return
+    }
     setCreatingCandidates(true)
     clearMessages()
     try {
@@ -503,7 +548,7 @@ export function ReceiptReviewClient({
       const res = await fetchWithTimeout(`/api/receipts/${receipt.id}/material-candidates/${nextDraft.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...toCandidatePayload(nextDraft), confirmDuplicate }),
+        body: JSON.stringify({ ...toCandidatePayload(nextDraft), confirmDuplicate, expected_supplier_id: receipt.supplier_id }),
       }, 60000)
       const json = await readApiJson(res)
       if (!res.ok) {
@@ -616,9 +661,46 @@ export function ReceiptReviewClient({
             <ReceiptStatusBadge status={receipt.status} />
           </div>
 
+          {!isPosted && (
+            <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <h3 className="font-bold text-blue-950">ร้านค้าที่อาจตรงกับสลิป</h3>
+              <p className="mt-1 text-xs text-slate-600">ตรวจว่าเป็นผู้ขายในเอกสาร เลือกร้าน แล้วกดยืนยันร้านและบันทึก Draft ระบบจะไม่เลือกร้านให้เอง</p>
+              {supplierMatches.length > 0 ? (
+                <ul className="mt-3 space-y-2">
+                  {supplierMatches.map(({ supplier, reasons, conflicts }) => (
+                    <li key={supplier.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="break-words text-sm font-bold text-blue-950">{supplier.supplier_name_th} ({supplier.supplier_code || supplier.supplier_id})</p>
+                          <p className="mt-1 text-xs text-slate-600">เลขผู้เสียภาษี: {supplier.tax_id || '-'} / โทร: {supplier.phone || '-'}</p>
+                          <p className="mt-1 text-xs text-blue-700">{reasons.join(' · ')}</p>
+                          {conflicts.map((conflict) => <p key={conflict} className="mt-1 text-xs font-semibold text-amber-800">{conflict}</p>)}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={supplierSelectionLocked || header.supplier_id === supplier.id}
+                          onClick={() => setHeaderField('supplier_id', supplier.id)}
+                          aria-label={`เลือกร้าน ${supplier.supplier_name_th} (${supplier.supplier_code || supplier.supplier_id})`}
+                          className="btn-secondary text-xs"
+                        >
+                          {header.supplier_id === supplier.id ? (supplierConfirmed ? 'ยืนยันแล้ว' : 'เลือกแล้ว รอยืนยัน') : 'เลือกร้านนี้'}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm text-slate-600">ยังไม่พบร้านที่ตรงจากข้อมูลนี้ กรุณาตรวจข้อความจากสลิปหรือเลือกร้านเองด้านล่าง</p>
+              )}
+              <button type="button" disabled={supplierSelectionLocked} className="btn-secondary mt-3" onClick={() => setNewSupplierDraft(getReceiptSupplierDraft({
+                ...receipt, supplier_name_raw: header.supplier_name_raw, supplier_tax_id_raw: header.supplier_tax_id_raw,
+              }))}>สร้างร้านใหม่จากสลิป</button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field label="Supplier">
-              <select disabled={isPosted} value={header.supplier_id} onChange={(e) => setHeaderField('supplier_id', e.target.value)} className={inputClass}>
+              <select aria-label="ร้านค้าของสลิป" disabled={supplierSelectionLocked} value={header.supplier_id} onChange={(e) => setHeaderField('supplier_id', e.target.value)} className={inputClass}>
                 <option value="">- เลือกซัพพลายเออร์ -</option>
                 {suppliers.map((supplier) => (
                   <option key={supplier.id} value={supplier.id}>
@@ -628,7 +710,7 @@ export function ReceiptReviewClient({
               </select>
             </Field>
             <Field label="ชื่อ Supplier จากสลิป">
-              <input disabled={isPosted} value={header.supplier_name_raw} onChange={(e) => setHeaderField('supplier_name_raw', e.target.value)} className={inputClass} />
+              <input aria-label="ชื่อผู้ขายจากสลิป" disabled={supplierSelectionLocked} value={header.supplier_name_raw} onChange={(e) => setHeaderField('supplier_name_raw', e.target.value)} className={inputClass} />
             </Field>
             <Field label="วันที่สลิป">
               <input disabled={isPosted} type="date" value={header.receipt_date} onChange={(e) => setHeaderField('receipt_date', e.target.value)} className={inputClass} />
@@ -637,7 +719,7 @@ export function ReceiptReviewClient({
               <input disabled={isPosted} value={header.receipt_no} onChange={(e) => setHeaderField('receipt_no', e.target.value)} className={inputClass} />
             </Field>
             <Field label="Tax ID จากสลิป">
-              <input disabled={isPosted} value={header.supplier_tax_id_raw} onChange={(e) => setHeaderField('supplier_tax_id_raw', e.target.value)} className={inputClass} />
+              <input aria-label="เลขผู้เสียภาษีผู้ขายจากสลิป" disabled={supplierSelectionLocked} value={header.supplier_tax_id_raw} onChange={(e) => setHeaderField('supplier_tax_id_raw', e.target.value)} className={inputClass} />
             </Field>
           </div>
 
@@ -663,8 +745,8 @@ export function ReceiptReviewClient({
           </div>
 
           <div className="mt-5 flex justify-end">
-            <button disabled={isPosted || savingHeader} type="button" onClick={saveHeader} className="btn-secondary">
-              {savingHeader ? 'กำลังบันทึก...' : 'บันทึก Draft'}
+            <button disabled={supplierSelectionLocked} type="button" onClick={saveHeader} className="btn-secondary">
+              {savingHeader ? 'กำลังบันทึก...' : !supplierConfirmed && header.supplier_id ? 'ยืนยันร้านและบันทึก Draft' : 'บันทึก Draft'}
             </button>
           </div>
         </div>
@@ -769,16 +851,16 @@ export function ReceiptReviewClient({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-blue-950">รายการจากสลิป</h2>
-            <p className="text-sm text-slate-500">เพิ่มรายการเอง เลือกวัสดุ แล้วกำหนด action ต่อรายการ</p>
+            <p className="text-sm text-slate-500">{!isPosted && !supplierConfirmed ? 'กรุณายืนยันร้านค้าและบันทึก Draft ก่อนจับคู่วัสดุ' : 'เพิ่มรายการเอง เลือกวัสดุ แล้วกำหนด action ต่อรายการ'}</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {!isPosted && (
-              <button disabled={matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={autoMatchMaterials} className="btn-secondary">
+              <button disabled={!supplierConfirmed || readingAi || savingHeader || matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={autoMatchMaterials} className="btn-secondary">
                 {matchingMaterials ? 'กำลังจับคู่วัสดุ...' : 'จับคู่วัสดุอัตโนมัติ'}
               </button>
             )}
             {!isPosted && (
-              <button disabled={creatingCandidates || matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={() => createMaterialCandidates()} className="btn-secondary">
+              <button disabled={!supplierConfirmed || readingAi || savingHeader || creatingCandidates || matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={() => createMaterialCandidates()} className="btn-secondary">
                 {creatingCandidates ? 'กำลังสร้าง Draft วัสดุ...' : 'สร้าง Draft วัสดุจากรายการที่ไม่พบ'}
               </button>
             )}
@@ -860,7 +942,7 @@ export function ReceiptReviewClient({
               {items.map((item) => {
                 const rowLocked = isPosted || item.review_status === 'posted'
                 const rowBusy = savingItemIds.has(item.id)
-                const readinessDetail = getReceiptItemReadiness(item)
+                const readinessDetail = getReceiptItemReadiness(item, effectiveSupplierId)
                 const pendingMaterialDraft = hasPendingMaterialDraft(item)
                 const materialFlow = getReceiptItemMaterialFlow(item)
                 const actionValue = getReceiptItemAction(item)
@@ -897,21 +979,24 @@ export function ReceiptReviewClient({
                   </td>
                   <td className="min-w-[280px]">
                     <MaterialPicker
+                      key={`${item.id}:${receipt.supplier_id}`}
+                      receiptId={receipt.id}
+                      supplierId={receipt.supplier_id}
                       item={item}
-                      disabled={rowLocked || rowBusy}
+                      disabled={rowLocked || rowBusy || !supplierConfirmed}
                       onReviewCandidate={(candidate) => {
                         setCandidateDraft(candidate)
                         setCandidateNeedsConfirm(false)
                       }}
                       onCreateCandidate={() => createMaterialCandidates([item.id])}
-                      onSelect={(candidate) => saveItem(item, {
+                      onSelect={(candidate, confirmLink = false) => saveItem(item, {
                         ...buildMaterialSelectionPatch(item, candidate),
                         material_id: candidate.id,
                         material_candidate_id: null,
                         material_resolution_status: 'matched_existing',
                         match_confidence: 100,
                         action: !item.action || item.action === 'needs_review' || item.action === 'create_material_needed' ? 'update_price' : item.action,
-                      } as any)}
+                      } as any, confirmLink)}
                       onCreateMaterialNeeded={() => saveItem(item, {
                         action: 'create_material_needed',
                         material_resolution_status: 'create_material_needed',
@@ -965,6 +1050,19 @@ export function ReceiptReviewClient({
         </div>
         </section>
       </section>
+
+      {newSupplierDraft && (
+        <dialog ref={supplierDialog} aria-labelledby="new-receipt-supplier-title" onCancel={(event) => event.preventDefault()} className="max-h-[90vh] w-[min(48rem,95vw)] rounded-2xl border border-slate-200 p-0 backdrop:bg-slate-950/40">
+          <h2 id="new-receipt-supplier-title" className="px-6 pt-6 text-lg font-bold text-blue-950">สร้างร้านใหม่จากสลิป</h2>
+          <SupplierForm mode="create" receiptContext={{
+            receiptId: receipt.id,
+            initialValues: newSupplierDraft,
+            onCreated: (supplier) => selectCreatedOrExistingSupplier(supplier, true),
+            onUseExisting: (supplier) => selectCreatedOrExistingSupplier(supplier, false),
+            onCancel: () => setNewSupplierDraft(null),
+          }} />
+        </dialog>
+      )}
 
       {candidateDraft && (
         <CandidateReviewModal
@@ -1224,6 +1322,8 @@ function CandidateReviewModal({
 }
 
 function MaterialPicker({
+  receiptId,
+  supplierId,
   item,
   disabled,
   onReviewCandidate,
@@ -1232,11 +1332,13 @@ function MaterialPicker({
   onCreateMaterialNeeded,
   onIgnore,
 }: {
+  receiptId: string
+  supplierId: string | null
   item: PurchaseReceiptItem
   disabled?: boolean
   onReviewCandidate: (candidate: ReceiptMaterialCandidate) => void
   onCreateCandidate: () => void
-  onSelect: (candidate: MaterialCandidate) => void
+  onSelect: (candidate: MaterialCandidate, confirmLink?: boolean) => Promise<boolean | undefined>
   onCreateMaterialNeeded: () => void
   onIgnore: () => void
 }) {
@@ -1244,26 +1346,44 @@ function MaterialPicker({
   const [loading, setLoading] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [candidates, setCandidates] = useState<MaterialCandidate[]>([])
+  const [scope, setScope] = useState<'supplier' | 'all'>('supplier')
+  const [searched, setSearched] = useState(false)
+  const [searchError, setSearchError] = useState('')
+  const [pendingLink, setPendingLink] = useState<MaterialCandidate | null>(null)
+  const searchVersion = useRef(0)
+  useEffect(() => () => { searchVersion.current += 1 }, [])
   const selected = item.material
   const suggested = item.suggested_material
   const materialCandidate = item.material_candidate
   const matchCandidates = (item.match_candidates?.length
     ? item.match_candidates
-    : suggested
+    : suggested && item.material_supplier_id === supplierId
       ? [{ ...suggested, match_confidence: item.match_confidence, match_reason: item.match_reason } as MaterialCandidate]
       : []
   ).slice(0, 3)
   const autoSelected = Boolean(selected && item.match_reason?.includes('เลือกให้อัตโนมัติ'))
 
-  async function search() {
+  async function search(nextScope: 'supplier' | 'all' = scope) {
     if (query.trim().length < 2) return
+    const version = ++searchVersion.current
+    setScope(nextScope)
+    setCandidates([])
+    setPendingLink(null)
+    setSearchError('')
+    setSearched(false)
     setLoading(true)
     try {
-      const res = await fetch(`/api/receipts/material-candidates?search=${encodeURIComponent(query)}&limit=8`)
+      const res = await fetch(`/api/receipts/material-candidates?receipt_id=${receiptId}&scope=${nextScope}&search=${encodeURIComponent(query)}&limit=8`)
       const json = await res.json()
-      setCandidates(res.ok ? json.data ?? [] : [])
+      if (version !== searchVersion.current) return
+      if (!res.ok) throw new Error(json.error ?? 'ค้นหาวัสดุไม่สำเร็จ')
+      if (json.supplier_id !== supplierId) throw new Error('ร้านของสลิปเปลี่ยนแล้ว กรุณารีเฟรชหน้านี้')
+      setCandidates(json.data ?? [])
+      setSearched(true)
+    } catch (error) {
+      if (version === searchVersion.current) setSearchError(error instanceof Error ? error.message : 'ค้นหาวัสดุไม่สำเร็จ')
     } finally {
-      setLoading(false)
+      if (version === searchVersion.current) setLoading(false)
     }
   }
 
@@ -1282,6 +1402,9 @@ function MaterialPicker({
                 )}
               </div>
               <p className="truncate text-xs text-emerald-700">{selected.mat_name_th}</p>
+              {item.review_status !== 'posted' && item.material_supplier_id !== supplierId && (
+                <p className="mt-1 text-[11px] font-semibold text-amber-800">กรุณากดเปลี่ยนและเลือกวัสดุเพื่อยืนยันร้านก่อนบันทึกราคา</p>
+              )}
             </div>
             {!disabled && (
               <button type="button" onClick={() => setSearchOpen(true)} className="shrink-0 rounded-lg border border-emerald-300 bg-white px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100">
@@ -1351,8 +1474,8 @@ function MaterialPicker({
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          <p className="text-xs font-bold text-slate-500">ไม่พบวัสดุในระบบ</p>
-          <p className="mt-1 text-[11px] text-slate-400">ค้นหาเอง หรือสร้างวัสดุใหม่ภายหลัง</p>
+          <p className="text-xs font-bold text-slate-500">{supplierId ? 'ไม่พบวัสดุที่ผูกกับร้านนี้' : 'กรุณายืนยันร้านค้าก่อนเลือกวัสดุ'}</p>
+          <p className="mt-1 text-[11px] text-slate-400">ค้นหาในร้านก่อน หากไม่มีจึงเลือกจากคลังกลางหรือสร้างวัสดุใหม่</p>
           {!disabled && (
             <button type="button" onClick={onCreateCandidate} className="mt-2 rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-bold text-blue-800 hover:bg-blue-50">
               สร้าง Draft วัสดุ
@@ -1362,10 +1485,16 @@ function MaterialPicker({
       )}
       {!disabled && (
         searchOpen ? (
-          <div className="flex gap-2">
-            <input value={query} onChange={(e) => setQuery(e.target.value)} className={inputClass} placeholder="ค้นหาวัสดุ" />
-            <button type="button" onClick={search} disabled={loading || query.trim().length < 2} className="rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+          <div className="space-y-2">
+            <p className="text-[11px] font-bold text-slate-600">{scope === 'supplier' ? 'ค้นหาเฉพาะวัสดุของร้านนี้' : 'คลังกลาง — ต้องยืนยันผูกกับร้านก่อนเลือก'}</p>
+            <div className="flex gap-2">
+            <input value={query} onChange={(e) => { searchVersion.current += 1; setQuery(e.target.value); setCandidates([]); setPendingLink(null); setSearched(false); setLoading(false) }} className={inputClass} placeholder={scope === 'supplier' ? 'ชื่อหรือรหัสสินค้าของร้านนี้' : 'ค้นหาวัสดุในคลังกลาง'} />
+            <button type="button" onClick={() => search()} disabled={loading || query.trim().length < 2} className="rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
               {loading ? '...' : 'ค้นหา'}
+            </button>
+            </div>
+            <button type="button" disabled={loading || query.trim().length < 2} onClick={() => search(scope === 'supplier' ? 'all' : 'supplier')} className="text-xs font-semibold text-blue-800 underline disabled:opacity-40">
+              {scope === 'supplier' ? 'ไม่พบในร้าน? ค้นหาคลังกลาง' : 'กลับไปค้นหาเฉพาะร้านนี้'}
             </button>
           </div>
         ) : (
@@ -1381,16 +1510,28 @@ function MaterialPicker({
           </div>
         )
       )}
+      {searchError && <p role="alert" className="text-xs text-red-700">{searchError}</p>}
+      {searched && !loading && candidates.length === 0 && !disabled && <p className="text-xs text-slate-500">{scope === 'supplier' ? 'ไม่พบวัสดุที่ผูกกับร้านนี้' : 'ไม่พบวัสดุที่ค้นหาในคลังกลาง'}</p>}
+      {pendingLink && !disabled && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+          <p>ยืนยันว่าสินค้าในสลิปคือ “{pendingLink.mat_name_th}” ใช่หรือไม่? ระบบจะผูกวัสดุนี้กับร้านที่ยืนยันไว้ โดยไม่เปลี่ยนราคาของร้านอื่น</p>
+          <div className="mt-2 flex gap-2">
+            <button type="button" className="font-bold underline" onClick={async () => {
+              if (await onSelect(pendingLink, true)) { setPendingLink(null); setCandidates([]); setSearchOpen(false) }
+            }}>ยืนยันผูกกับร้านนี้และเลือก</button>
+            <button type="button" onClick={() => setPendingLink(null)}>ยกเลิก</button>
+          </div>
+        </div>
+      )}
       {candidates.length > 0 && !disabled && (
         <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           {candidates.map((candidate) => (
             <button
               key={candidate.id}
               type="button"
-              onClick={() => {
-                onSelect(candidate)
-                setCandidates([])
-                setSearchOpen(false)
+              onClick={async () => {
+                if (scope === 'all') { setPendingLink(candidate); return }
+                if (await onSelect(candidate)) { setCandidates([]); setSearchOpen(false) }
               }}
               className="block w-full border-b border-slate-100 px-3 py-2 text-left text-xs hover:bg-blue-50"
             >
@@ -1594,7 +1735,7 @@ function getClientReviewStatus(item: PurchaseReceiptItem) {
   return 'needs_review'
 }
 
-function getReceiptItemReadiness(item: PurchaseReceiptItem) {
+function getReceiptItemReadiness(item: PurchaseReceiptItem, supplierId: string | null) {
   if (item.review_status === 'posted') {
     return {
       key: 'posted',
@@ -1628,6 +1769,13 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
   }
 
   if (action === 'update_price') {
+    if (item.material_id && (!supplierId || item.material_supplier_id !== supplierId)) {
+      return {
+        key: 'needs_review', label: 'ต้องยืนยันวัสดุของร้าน',
+        helper: 'รายการนี้ยังไม่ได้ตรวจให้ตรงกับร้านปัจจุบัน', nextAction: 'กดเปลี่ยนและเลือกวัสดุใหม่',
+        className: 'border-amber-200 bg-amber-50 text-amber-800',
+      }
+    }
     if (!item.material_id) {
       return {
         key: 'missing_material',
@@ -1675,7 +1823,7 @@ function getReceiptItemReadiness(item: PurchaseReceiptItem) {
   }
 }
 
-function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean) {
+function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean, supplierId: string | null) {
   const summary = {
     total: items.length,
     ready: 0,
@@ -1694,7 +1842,7 @@ function buildReadinessSummary(items: PurchaseReceiptItem[], isPosted: boolean) 
   }
 
   for (const item of items) {
-    const readiness = getReceiptItemReadiness(item)
+    const readiness = getReceiptItemReadiness(item, supplierId)
     if (readiness.key === 'posted') {
       summary.posted += 1
       continue
@@ -1793,6 +1941,7 @@ function buildPostBlockers(receipt: PurchaseReceipt, items: PurchaseReceiptItem[
     const action = getReceiptItemAction(item)
     if (action === 'update_price') {
       if (!item.material_id) blockers.push(`${label} ยังไม่ได้เลือกวัสดุ`)
+      if (item.review_status !== 'posted' && item.material_id && item.material_supplier_id !== receipt.supplier_id) blockers.push(`${label} ต้องยืนยันวัสดุให้ตรงกับร้านปัจจุบัน`)
       if (!item.uom_id) blockers.push(`${label} ต้องมีหน่วยก่อนบันทึก`)
       if (!item.unit_price || item.unit_price <= 0) blockers.push(`${label} ราคา/หน่วยไม่ถูกต้อง`)
       if (getClientReviewStatus(item) !== 'reviewed') blockers.push(`${label} ยังต้องตรวจสอบ`)

@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOwnerApi } from '@/lib/auth/owner'
 import { createClient } from '@/lib/supabase/server'
 import { getPaginationRange } from '@/lib/utils'
-import { createSupplierSchema } from '@/lib/validations/supplier'
+import { createReceiptSupplierSchema, createSupplierSchema } from '@/lib/validations/supplier'
 import { generateSupplierId, writeAuditLog } from '@/lib/server-utils'
 import { buildOrIlikeFilter, normalizeSearchTerm } from '@/lib/supabase/filters'
 import { invalidateActiveSuppliersCache } from '@/lib/server/master-data-cache'
+import { findReceiptSupplierDuplicates } from '@/lib/receipt-supplier-match'
+import type { ReceiptSupplier } from '@/types/receipt'
 
 export async function GET(req: NextRequest) {
   const owner = await requireOwnerApi()
@@ -53,7 +55,15 @@ export async function POST(req: NextRequest) {
   if (owner instanceof NextResponse) return owner
 
   const supabase = await createClient()
-  const body = await req.json()
+  let body
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'Invalid supplier payload' }, { status: 400 })
+  }
   const payload = {
     ...body,
     supplier_code: typeof body.supplier_code === 'string' ? body.supplier_code.trim().toUpperCase() : body.supplier_code,
@@ -62,7 +72,8 @@ export async function POST(req: NextRequest) {
     tax_id: typeof body.tax_id === 'string' ? body.tax_id.trim() : body.tax_id,
   }
 
-  const parsed = createSupplierSchema.safeParse(payload)
+  const fromReceipt = body.source_receipt_id !== undefined || body.confirm_supplier !== undefined
+  const parsed = (fromReceipt ? createReceiptSupplierSchema : createSupplierSchema).safeParse(payload)
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Validation failed', details: parsed.error.flatten() },
@@ -70,14 +81,46 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const input = parsed.data
+  // Strip receipt context before inserting into the existing supplier table.
+  const input = createSupplierSchema.parse(parsed.data)
 
-  const { data: codeExisting } = await supabase
+  if ('source_receipt_id' in parsed.data) {
+    const { data: receipt, error } = await supabase.from('purchase_receipts')
+      .select('id, status').eq('id', parsed.data.source_receipt_id).maybeSingle()
+    if (error) return NextResponse.json({ error: 'ตรวจสอบสลิปไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 })
+    if (!receipt) return NextResponse.json({ error: 'ไม่พบสลิป' }, { status: 404 })
+    if (receipt.status === 'posted') return NextResponse.json({ error: 'สลิปนี้บันทึกราคาแล้ว สร้างร้านจากสลิปนี้ไม่ได้' }, { status: 400 })
+
+    // Legacy tax IDs/names can contain formatting. Compare normalized identities,
+    // paging only identity columns at creation time rather than trusting the UI list.
+    let offset = 0
+    while (true) {
+      const { data: rows, error: lookupError, count } = await supabase.from('supplier')
+        .select('id, supplier_id, supplier_code, supplier_name_th, supplier_name_en, tax_id, phone, status', { count: 'exact' })
+        .eq('is_deleted', false).order('id').range(offset, offset + 499)
+      if (lookupError || count === null || !rows || (rows.length === 0 && offset < count)) {
+        return NextResponse.json({ error: 'ตรวจร้านซ้ำไม่สำเร็จ ยังไม่ได้สร้างร้าน กรุณาลองใหม่' }, { status: 500 })
+      }
+      const duplicates = findReceiptSupplierDuplicates(input, rows as ReceiptSupplier[])
+      if (duplicates.length) {
+        return NextResponse.json({
+          error: 'พบร้านที่มีชื่อหรือเลขผู้เสียภาษีตรงกัน กรุณาตรวจและใช้ร้านเดิมก่อนสร้างใหม่',
+          existing_suppliers: duplicates,
+        }, { status: 409 })
+      }
+      offset += rows.length
+      if (offset >= count) break
+    }
+  }
+
+  const { data: codeExisting, error: codeError } = await supabase
     .from('supplier')
     .select('supplier_id')
     .eq('supplier_code', input.supplier_code)
     .eq('is_deleted', false)
     .limit(1)
+
+  if (codeError) return NextResponse.json({ error: 'ตรวจรหัสร้านซ้ำไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 })
 
   if (codeExisting && codeExisting.length > 0) {
     return NextResponse.json(
@@ -87,12 +130,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (input.tax_id) {
-    const { data: taxExisting } = await supabase
+    const { data: taxExisting, error: taxError } = await supabase
       .from('supplier')
       .select('supplier_id')
       .eq('tax_id', input.tax_id)
       .eq('is_deleted', false)
       .limit(1)
+
+    if (taxError) return NextResponse.json({ error: 'ตรวจเลขผู้เสียภาษีซ้ำไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 })
 
     if (taxExisting && taxExisting.length > 0) {
       return NextResponse.json(
@@ -110,7 +155,9 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.code === '23505'
+      ? 'รหัสร้านหรือเลขผู้เสียภาษีซ้ำกับรายการที่มีอยู่ กรุณาตรวจร้านเดิมแล้วลองใหม่'
+      : error.message }, { status: error.code === '23505' ? 409 : 500 })
   }
 
   invalidateActiveSuppliersCache()

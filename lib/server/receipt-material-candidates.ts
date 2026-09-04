@@ -25,6 +25,7 @@ export const receiptMaterialCandidateUpdateSchema = z.object({
 })
 
 export const approveReceiptMaterialCandidateSchema = receiptMaterialCandidateUpdateSchema.extend({
+  expected_supplier_id: z.string().uuid(),
   confirmDuplicate: z.boolean().optional().default(false),
 })
 
@@ -140,6 +141,7 @@ export async function ensureReceiptMaterialCandidatesForReview(
   userId: string,
   supplierId?: string | null,
 ) {
+  if (!supplierId) return listReceiptItems(supabase, receiptId)
   const items = await listReceiptReviewItems(supabase, receiptId, supplierId)
   const missingCandidateItemIds = items
     .filter(shouldCreateMaterialCandidateForItem)
@@ -169,6 +171,7 @@ export async function generateReceiptMaterialCandidates(
   if (receiptError) throw new ReceiptImportError(receiptError.message, 500, 'DATABASE_ERROR', receiptError)
   if (!receipt) throw new ReceiptImportError('Receipt not found', 404, 'NOT_FOUND')
   if (receipt.status === 'posted') throw new ReceiptImportError('สลิปนี้ถูกบันทึกเข้าระบบแล้ว สร้าง Draft วัสดุไม่ได้', 400, 'BAD_REQUEST')
+  if (!receipt.supplier_id) throw new ReceiptImportError('กรุณายืนยันร้านค้าและบันทึก Draft ก่อนสร้าง Draft วัสดุ', 400, 'VALIDATION_ERROR')
 
   let itemQuery = supabase
     .from('purchase_receipt_items')
@@ -210,7 +213,7 @@ export async function generateReceiptMaterialCandidates(
 
   if (insertError) throw new ReceiptImportError(insertError.message, 500, 'DATABASE_ERROR', insertError)
 
-  await Promise.all((createdCandidates ?? []).map((candidate: any) => (
+  const linkedResults = await Promise.all((createdCandidates ?? []).map((candidate: any) => (
     supabase
       .from('purchase_receipt_items')
       .update({
@@ -221,15 +224,22 @@ export async function generateReceiptMaterialCandidates(
       })
       .eq('id', candidate.receipt_item_id)
       .eq('receipt_id', receiptId)
+      .is('material_id', null)
+      .neq('review_status', 'posted')
+      .select('id')
   )))
+  const failedLink = linkedResults.find((result) => result.error)
+  if (failedLink?.error) throw new ReceiptImportError(failedLink.error.message, 500, 'DATABASE_ERROR', failedLink.error)
+  // A competing selection/post owns the row; do not overwrite it or count it as linked.
+  const linkedItemIds = linkedResults.flatMap((result) => (result.data ?? []).map((item: any) => item.id))
 
   await writeAuditLog({
     entityType: 'purchase_receipt',
     entityKey: receiptId,
     action: 'CREATE_MATERIAL_CANDIDATES',
     payload: {
-      created: createdCandidates?.length ?? 0,
-      item_ids: (createdCandidates ?? []).map((candidate: any) => candidate.receipt_item_id),
+      created: linkedItemIds.length,
+      item_ids: linkedItemIds,
     },
     createdBy: userId,
   })
@@ -239,8 +249,8 @@ export async function generateReceiptMaterialCandidates(
   return {
     items: reviewItems,
     candidates,
-    created: createdCandidates?.length ?? 0,
-    skipped: Math.max(0, (items ?? []).length - (createdCandidates?.length ?? 0)),
+    created: linkedItemIds.length,
+    skipped: Math.max(0, (items ?? []).length - linkedItemIds.length),
   }
 }
 
@@ -303,7 +313,8 @@ export async function approveReceiptMaterialCandidate(
   input: z.infer<typeof approveReceiptMaterialCandidateSchema>,
   userId: string,
 ) {
-  const { data, error } = await supabase.rpc('approve_receipt_material_candidate_atomic', {
+  const { data, error } = await supabase.rpc('approve_receipt_material_candidate_scoped', {
+    p_expected_supplier_id: input.expected_supplier_id,
     p_receipt_id: receiptId,
     p_candidate_id: candidateId,
     p_confirm_duplicate: Boolean(input.confirmDuplicate),

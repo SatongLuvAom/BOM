@@ -66,7 +66,10 @@ export const createReceiptItemSchema = z.object({
   action: receiptItemActionSchema.optional().nullable(),
 })
 
-export const updateReceiptItemSchema = createReceiptItemSchema.partial()
+export const updateReceiptItemSchema = createReceiptItemSchema.partial().extend({
+  expected_supplier_id: z.string().uuid().nullable(),
+  confirm_supplier_link: z.boolean().optional(),
+})
 
 export type CreateReceiptDraftInput = z.infer<typeof createReceiptDraftSchema>
 export type UpdateReceiptDraftInput = z.infer<typeof updateReceiptDraftSchema>
@@ -207,6 +210,7 @@ export const RECEIPT_ITEM_SELECT = `
   discount_amount,
   suggested_material_id,
   material_id,
+  material_supplier_id,
   material_candidate_id,
   material_resolution_status,
   match_confidence,
@@ -491,6 +495,9 @@ export async function updateReceiptItem(supabase: any, receiptId: string, itemId
   if (beforeError) throw new ReceiptImportError(beforeError.message, 500, 'DATABASE_ERROR', beforeError)
   if (!before) throw new ReceiptImportError('Receipt item not found', 404, 'NOT_FOUND')
   if (before.review_status === 'posted') throw new ReceiptImportError('รายการนี้บันทึกราคาแล้ว แก้ไขจากหน้านี้ไม่ได้', 400, 'BAD_REQUEST')
+  if (receipt.supplier_id !== input.expected_supplier_id) {
+    throw new ReceiptImportError('ร้านของสลิปเปลี่ยนแล้ว กรุณารีเฟรชและเลือกวัสดุใหม่', 409, 'VALIDATION_ERROR')
+  }
 
   const mergedItem = { ...before, ...input }
   if (mergedItem.material_candidate_id && !mergedItem.material_id && mergedItem.action !== 'ignore') {
@@ -498,15 +505,18 @@ export async function updateReceiptItem(supabase: any, receiptId: string, itemId
     mergedItem.material_resolution_status = 'candidate_created'
   }
   assertReviewStatusAllowed(mergedItem)
-  const { data, error } = await supabase
-    .from('purchase_receipt_items')
-    .update(normalizeReceiptItemPayload(mergedItem))
-    .eq('id', itemId)
-    .eq('receipt_id', receiptId)
-    .select(RECEIPT_ITEM_SELECT)
-    .single()
-
-  if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  const { data: result, error } = await supabase.rpc('update_receipt_item_scoped', {
+    p_receipt_id: receiptId,
+    p_item_id: itemId,
+    p_expected_supplier_id: input.expected_supplier_id,
+    p_patch: normalizeReceiptItemPayload(mergedItem),
+    p_confirm_supplier_link: input.confirm_supplier_link === true,
+  })
+  if (error) throw new ReceiptImportError(error.message, error.code === 'P0001' ? 409 : 500, error.code === 'P0001' ? 'VALIDATION_ERROR' : 'DATABASE_ERROR', error)
+  if (!result?.ok) throw new ReceiptImportError('บันทึกรายการแล้วแต่ไม่ได้รับผลยืนยัน', 500, 'DATABASE_ERROR')
+  const { data, error: readError } = await supabase.from('purchase_receipt_items')
+    .select(RECEIPT_ITEM_SELECT).eq('id', itemId).eq('receipt_id', receiptId).single()
+  if (readError) throw new ReceiptImportError(readError.message, 500, 'DATABASE_ERROR', readError)
 
   await writeAuditLog({
     entityType: 'purchase_receipt_item',
@@ -599,6 +609,7 @@ export async function searchMaterialCandidates(supabase: any, search: string, li
       uom:mat_uom!mat_master_base_uom_fkey(id, uom_code, uom_name_th)
     `)
     .eq('is_deleted', false)
+    .eq('status', 'ACTIVE')
     .in('material_id', limitedIds)
 
   if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
@@ -643,7 +654,7 @@ export async function validateReceiptBeforePosting(supabase: any, id: string) {
 
 export async function postReceiptToPriceHistory(supabase: any, id: string, userId: string) {
   const { receipt, items } = await validateReceiptBeforePosting(supabase, id)
-  await ensureReceiptSupplierMappings(supabase, receipt, items)
+  await assertReceiptSupplierMappings(supabase, receipt, items)
 
   const data = await runReceiptPostRpc(supabase, 'fn_post_purchase_receipt_to_price_history', id, userId)
 
@@ -669,7 +680,7 @@ export async function postReadyReceiptItemsToPriceHistory(supabase: any, id: str
   if (calculationErrors.length > 0) {
     throw new ReceiptImportError('ยอดในสลิปยังไม่สัมพันธ์กัน กรุณาตรวจสอบก่อนบันทึกราคา', 400, 'VALIDATION_ERROR', calculationErrors)
   }
-  await ensureReceiptSupplierMappings(supabase, receipt, items)
+  await assertReceiptSupplierMappings(supabase, receipt, items)
 
   const data = await runReceiptPostRpc(supabase, 'fn_post_purchase_receipt_ready_items', id, userId)
 
@@ -703,118 +714,23 @@ function getReceiptCalculationErrors(receipt: any, items: any[]) {
   return result.issues.map((issue) => issue.message)
 }
 
-async function ensureReceiptSupplierMappings(supabase: any, receipt: any, items: any[]) {
-  if (!receipt.supplier_id) {
-    throw new ReceiptImportError('ต้องเลือกซัพพลายเออร์ก่อนบันทึกราคา', 400, 'VALIDATION_ERROR')
-  }
-
-  const readyItems = items.filter((item: any) => (
-    item.action === 'update_price'
-    && item.review_status === 'reviewed'
-    && item.material_id
-    && item.uom_id
-    && Number(item.unit_price ?? 0) > 0
-  ))
-
+async function assertReceiptSupplierMappings(supabase: any, receipt: any, items: any[]) {
+  const readyItems = items.filter((item: any) => item.action === 'update_price' && item.review_status === 'reviewed')
   if (readyItems.length === 0) return
-
-  const { data: supplier, error: supplierError } = await supabase
-    .from('supplier')
-    .select('id, supplier_id')
-    .eq('id', receipt.supplier_id)
-    .eq('is_deleted', false)
-    .maybeSingle()
-
-  if (supplierError) throw new ReceiptImportError(supplierError.message, 500, 'DATABASE_ERROR', supplierError)
-  if (!supplier) throw new ReceiptImportError('ซัพพลายเออร์ไม่ถูกต้อง', 400, 'VALIDATION_ERROR')
-
-  const materialUuids = Array.from(new Set(readyItems.map((item: any) => item.material_id).filter(Boolean)))
-  const { data: materials, error: materialError } = await supabase
-    .from('mat_master')
-    .select('id, material_id, mat_name_th')
-    .in('id', materialUuids)
-    .eq('is_deleted', false)
-
-  if (materialError) throw new ReceiptImportError(materialError.message, 500, 'DATABASE_ERROR', materialError)
-
-  const materialByUuid = new Map<string, { id: string; material_id: string; mat_name_th: string | null }>(
-    (materials ?? []).map((material: any) => [String(material.id), material]),
-  )
-  const requiredRows = readyItems
-    .map((item: any) => {
-      const material = materialByUuid.get(item.material_id)
-      if (!material?.material_id) return null
-      return {
-        material_id: material.material_id,
-        material_uuid: material.id,
-        supplier_id: supplier.supplier_id,
-        supplier_uuid: supplier.id,
-        supplier_material_name: item.item_name_raw || material.mat_name_th,
-        is_preferred: false,
-        is_active: true,
-        is_deleted: false,
-        deleted_at: null,
-        lead_time_days: 0,
-        min_order_qty: 0,
-        note: 'Created automatically before posting receipt price',
-      }
-    })
-    .filter(Boolean)
-
-  const uniqueRows = Array.from(new Map(requiredRows.map((row: any) => [`${row.material_id}:${row.supplier_id}`, row])).values())
-  if (uniqueRows.length === 0) return
-
-  const materialIds = uniqueRows.map((row: any) => row.material_id)
-  const { data: existingRows, error: existingError } = await supabase
-    .from('mat_supplier_map')
-    .select('material_id, supplier_id, is_deleted')
-    .eq('supplier_id', supplier.supplier_id)
-    .in('material_id', materialIds)
-
-  if (existingError) throw new ReceiptImportError(existingError.message, 500, 'DATABASE_ERROR', existingError)
-
-  const { data: activeMapRows, error: activeMapError } = await supabase
-    .from('mat_supplier_map')
-    .select('material_id, is_active')
-    .eq('is_deleted', false)
-    .in('material_id', materialIds)
-
-  if (activeMapError) throw new ReceiptImportError(activeMapError.message, 500, 'DATABASE_ERROR', activeMapError)
-
-  const activeMappedMaterialIds = new Set(
-    (activeMapRows ?? [])
-      .filter((row: any) => row.is_active !== false)
-      .map((row: any) => row.material_id),
-  )
-
-  const existingKeys = new Set((existingRows ?? []).map((row: any) => `${row.material_id}:${row.supplier_id}`))
-  const deletedMaterialIds = (existingRows ?? [])
-    .filter((row: any) => row.is_deleted)
-    .map((row: any) => row.material_id)
-
-  if (deletedMaterialIds.length > 0) {
-    const { error: restoreError } = await supabase
-      .from('mat_supplier_map')
-      .update({ is_deleted: false, deleted_at: null, is_active: true })
-      .eq('supplier_id', supplier.supplier_id)
-      .in('material_id', deletedMaterialIds)
-
-    if (restoreError) throw new ReceiptImportError(restoreError.message, 500, 'DATABASE_ERROR', restoreError)
+  if (!receipt.supplier_id || readyItems.some((item: any) => item.material_supplier_id !== receipt.supplier_id)) {
+    throw new ReceiptImportError('กรุณาตรวจและเลือกวัสดุให้ตรงกับร้านปัจจุบันก่อนบันทึกราคา', 400, 'VALIDATION_ERROR')
   }
-
-  const missingRows = uniqueRows
-    .filter((row: any) => !existingKeys.has(`${row.material_id}:${row.supplier_id}`))
-    .map((row: any) => ({
-      ...row,
-      is_preferred: !activeMappedMaterialIds.has(row.material_id),
-    }))
-  if (missingRows.length === 0) return
-
-  const { error: insertError } = await supabase
-    .from('mat_supplier_map')
-    .upsert(missingRows, { onConflict: 'material_id,supplier_id', ignoreDuplicates: true })
-
-  if (insertError) throw new ReceiptImportError(insertError.message, 500, 'DATABASE_ERROR', insertError)
+  const { data: mappings, error } = await supabase.from('mat_supplier_map')
+    .select('material:mat_master!mat_supplier_map_material_id_fkey!inner(id)')
+    .eq('supplier_uuid', receipt.supplier_id)
+    .eq('is_active', true)
+    .eq('is_deleted', false)
+    .in('material.id', Array.from(new Set(readyItems.map((item: any) => item.material_id))))
+  if (error) throw new ReceiptImportError(error.message, 500, 'DATABASE_ERROR', error)
+  const linked = new Set((mappings ?? []).map((row: any) => row.material?.id))
+  if (readyItems.some((item: any) => !linked.has(item.material_id))) {
+    throw new ReceiptImportError('วัสดุบางรายการยังไม่ได้ผูกกับร้านนี้ กรุณายืนยันผูกก่อนบันทึกราคา', 400, 'VALIDATION_ERROR')
+  }
 }
 
 async function runReceiptPostRpc(supabase: any, functionName: string, id: string, userId: string) {

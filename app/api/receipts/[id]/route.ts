@@ -10,7 +10,7 @@ import {
   updateReceiptDraft,
   updateReceiptDraftSchema,
 } from '@/lib/server/receipt-import'
-import { ensureReceiptMaterialCandidatesForReview } from '@/lib/server/receipt-material-candidates'
+import { ensureReceiptMaterialCandidatesForReview, listReceiptReviewItems } from '@/lib/server/receipt-material-candidates'
 
 type Ctx = { params: Promise<{ id: string }> }
 
@@ -56,8 +56,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   try {
     const supabase = await createClient()
+    const before = await getReceiptById(supabase, id)
     const data = await updateReceiptDraft(supabase, id, parsed.data, owner.id)
-    return NextResponse.json({ data })
+    const items = before?.supplier_id !== data.supplier_id
+      ? await listReceiptReviewItems(supabase, id, data.supplier_id)
+      : undefined
+    return NextResponse.json({ data, items })
   } catch (error) {
     return receiptError(error)
   }
