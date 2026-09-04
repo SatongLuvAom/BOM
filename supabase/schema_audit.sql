@@ -110,7 +110,8 @@ expected_columns(schema_name, table_name, column_name, phase) AS (
     ('public', 'purchase_receipts', 'file_sha256', 'receipt-duplicate'),
     ('public', 'purchase_receipts', 'receipt_no_normalized', 'receipt-duplicate'),
     ('public', 'purchase_receipt_items', 'material_candidate_id', 'receipt-candidate'),
-    ('public', 'purchase_receipt_items', 'material_resolution_status', 'receipt-candidate')
+    ('public', 'purchase_receipt_items', 'material_resolution_status', 'receipt-candidate'),
+    ('public', 'purchase_receipt_items', 'material_supplier_id', 'receipt-supplier-scope')
 ),
 column_checks AS (
   SELECT
@@ -145,6 +146,8 @@ expected_functions(function_name, phase) AS (
     ('fn_post_purchase_receipt_to_price_history', 'receipt'),
     ('fn_post_purchase_receipt_ready_items', 'receipt'),
     ('approve_receipt_material_candidate_atomic', 'receipt-candidate'),
+    ('approve_receipt_material_candidate_scoped', 'receipt-supplier-scope'),
+    ('update_receipt_item_scoped', 'receipt-supplier-scope'),
     ('repair_receipt_state_v1', 'receipt-candidate')
 ),
 function_checks AS (
@@ -425,6 +428,27 @@ summary_checks AS (
       ), ''))
     )::text AS details
 ),
+receipt_scope_security_checks AS (
+  SELECT 'security'::text AS check_group, 'receipt-supplier-scope'::text AS phase,
+    'public'::text AS schema_name, signature AS object_name,
+    coalesce(has_function_privilege('authenticated', to_regprocedure(signature), 'EXECUTE'), false) = should_execute
+      AND NOT coalesce(has_function_privilege('anon', to_regprocedure(signature), 'EXECUTE'), true) AS present,
+    format('authenticated EXECUTE=%s; anon EXECUTE=false', should_execute) AS details
+  FROM (VALUES
+    ('public.update_receipt_item_scoped(uuid,uuid,uuid,jsonb,boolean)', true),
+    ('public.approve_receipt_material_candidate_scoped(uuid,uuid,uuid,boolean,uuid,jsonb)', true),
+    ('public.approve_receipt_material_candidate_atomic(uuid,uuid,boolean,uuid,jsonb)', false)
+  ) AS expected(signature, should_execute)
+  UNION ALL
+  SELECT 'security', 'receipt-supplier-scope', 'public', expected.trigger_name,
+    EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = to_regclass(expected.table_name)
+      AND t.tgname = expected.trigger_name AND NOT t.tgisinternal AND t.tgenabled IN ('O', 'A')),
+    'required supplier-scope trigger enabled'
+  FROM (VALUES
+    ('public.purchase_receipt_items', 'trg_receipt_material_supplier'),
+    ('public.purchase_receipts', 'trg_receipt_supplier_change')
+  ) AS expected(table_name, trigger_name)
+),
 all_checks AS (
   SELECT * FROM object_checks
   UNION ALL SELECT * FROM column_checks
@@ -432,6 +456,7 @@ all_checks AS (
   UNION ALL SELECT * FROM rls_checks
   UNION ALL SELECT * FROM material_delete_security_checks
   UNION ALL SELECT * FROM material_list_security_checks
+  UNION ALL SELECT * FROM receipt_scope_security_checks
   UNION ALL SELECT * FROM bucket_checks
   UNION ALL SELECT * FROM summary_checks
 )

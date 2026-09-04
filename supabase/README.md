@@ -81,10 +81,44 @@ For a fresh database using the current application, apply the additive SQL in th
 21. supabase/migrations/20260824_material_list_query_rpc.sql
 22. supabase/migrations/20260902_material_list_page_payload.sql
 23. supabase/migrations/20260903_receipt_duplicate_detection.sql
-24. Run supabase/schema_audit.sql again
+24. supabase/migrations/202609040001_receipt_supplier_material_scope.sql
+25. Deploy the receipt supplier-scope application
+26. supabase/migrations/202609040002_receipt_supplier_material_scope_enforce.sql
+27. Run supabase/schema_audit.sql again
 ```
 
-Do not combine this path with `sql/phase1_single_user_production.sql` or `sql/phase1_single_user_production_core_only.sql`; those are alternative historical hardening paths. Keep the database password out of the repository. `supabase db query --linked` requires a locally supplied `SUPABASE_DB_PASSWORD`, or the audit can be pasted into the Supabase SQL Editor.
+Do not combine this path with `sql/phase1_single_user_production.sql` or `sql/phase1_single_user_production_core_only.sql`; those are alternative historical hardening paths. Keep the database password out of the repository. `supabase db query --linked` uses authenticated Management API access, or the audit can be pasted into the Supabase SQL Editor.
+
+## Receipt supplier-scoped material release — 2026-09-04
+
+รหัสวัสดุกลางยังคงเดิม ร้านต่างกันใช้วัสดุเดียวกันได้ แต่ต้องมีความสัมพันธ์วัสดุ–ร้านที่ยืนยันแล้วก่อนบันทึกราคา
+
+- Foundation: [202609040001_receipt_supplier_material_scope.sql](D:/Program/BOQ/supabase/migrations/202609040001_receipt_supplier_material_scope.sql)
+- Enforcement: [202609040002_receipt_supplier_material_scope_enforce.sql](D:/Program/BOQ/supabase/migrations/202609040002_receipt_supplier_material_scope_enforce.sql)
+- ใช้ร่วมกับ source ที่เรียก `update_receipt_item_scoped` และ `approve_receipt_material_candidate_scoped` เท่านั้น
+- Build deployment ให้พร้อมด้วย `vercel deploy --prod --skip-domain` ก่อนเปลี่ยนฐานข้อมูล จากนั้นรัน foundation (ยังรองรับการเลือกวัสดุ/อนุมัติของ source เก่า), promote source ใหม่ และรัน enforcement ทันที ห้ามเปิด enforcement ก่อน source ใหม่พร้อม
+- ไม่รัน SQL ตั้งต้นหรือ seed ซ้ำ และไม่ย้อน migration เก่าทั้งชุด
+- สลิปเก่าที่ยังไม่บันทึกราคาจะไม่มี `material_supplier_id` โดยตั้งใจ ต้องกดเปลี่ยนและเลือกวัสดุใหม่เพื่อยืนยันร้าน ไม่เติมค่านี้ย้อนหลังเอง
+- Enforcement เปลี่ยนเฉพาะสถานะรายการเก่าที่เคยพร้อมอัปเดตราคาแต่ไม่มีการยืนยันร้านเป็น `needs_review` เพื่อไม่ขวางการบันทึกรายการอื่นที่พร้อมแล้ว ชื่อ จำนวน ราคา หน่วย และวัสดุเดิมยังอยู่ครบ
+- สลิป/รายการที่บันทึกราคาแล้วไม่ได้ถูกแก้ไขย้อนหลัง หากมีรายการที่บันทึกแล้วจะเปลี่ยนร้านของสลิปนั้นไม่ได้
+- เปลี่ยนร้านจะล้างการเลือกวัสดุและให้ตรวจใหม่ แต่เก็บชื่อจากเอกสาร จำนวน ราคา หน่วย และ Draft วัสดุไว้
+- ถ้าเคยสร้างวัสดุจาก Draft แล้วเปลี่ยนร้าน ให้ค้นหาวัสดุเดิมในคลังกลางและยืนยันผูกกับร้านใหม่ ไม่สร้างวัสดุซ้ำ
+- หลังรัน ให้ตรวจ `schema_audit.sql`: ไม่ควรมี `present=false` ในกลุ่ม `receipt-supplier-scope` และเก็บ `public_schema_signature` ใหม่
+- ทดสอบร้าน A/B: ค้นหาเฉพาะร้าน, ยืนยัน/ยกเลิกผูกคลังกลาง, เปลี่ยนร้าน, เปิดสองแท็บแล้วลองบันทึกแท็บเก่า และตรวจราคาว่าลงถูก supplier
+- ถ้า build หรือ foundation ล้มเหลว ให้คง Production เดิม; ถ้า promote ล้มเหลว ห้ามรัน enforcement และ source เดิมยังเลือกวัสดุ/อนุมัติได้ หลัง enforcement ห้าม rollback เฉพาะ source เพราะสัญญา RPC เปลี่ยน ต้องทบทวน release ทั้งคู่ก่อน
+
+ชุดทดสอบไม่แตะ Supabase จริง:
+
+```powershell
+npm run smoke:receipt-material-match
+npm run smoke:receipt-supplier-match
+npm run smoke:receipt-supplier-create
+npm run smoke:receipt-calculations
+npm run smoke:receipt-material-scope-db
+npm run smoke:receipt-material-scope-browser
+```
+
+สองคำสั่งสุดท้ายใช้ `@electric-sql/pglite`, `esbuild`, `playwright` ที่ติดตั้งแยกจาก dependency ของเว็บได้ โดยตั้ง `PGLITE_MODULE`, `ESBUILD_MODULE`, `PLAYWRIGHT_MODULE` เป็น absolute path ของ entry point ของแต่ละ package ตามคำอธิบายใน scripts; browser test ใช้ Edge แบบ headless เป็นค่าเริ่มต้น ปิดการออกอินเทอร์เน็ต และจำลอง HTTP API เฉพาะ localhost ส่วน DB test ใช้ PostgreSQL ในหน่วยความจำ โหลด schema, approval, repair และ posting SQL จริง ตรวจผลใน `mat_price_base` โดยไม่มี stub ของ RPC เหล่านี้ แต่ยังไม่ได้แทนการตรวจ multi-session หรือ auth/RLS บน Supabase
 
 ## RLS Policy Baseline
 
