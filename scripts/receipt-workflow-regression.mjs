@@ -17,6 +17,43 @@ function compile(source, dependencies, globals = {}) {
   return module.exports
 }
 const source = (file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+test('transport timing is opt-in, preserves request/response and excludes secrets', async () => {
+  let options
+  let now = 0
+  const logs = []
+  let calls = 0
+  let lastResponse
+  const module = compile(source('lib/supabase/server.ts'), {
+    '@supabase/ssr': { createServerClient: (_url, _key, config) => { options = config; return config } },
+    'next/headers': { cookies: async () => ({ getAll: () => [] }) },
+  }, {
+    process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'https://fixture.supabase.co', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'secret' } },
+    performance: { now: () => now }, console: { info: (line) => logs.push(JSON.parse(line)) },
+    fetch: async (_input, init) => {
+      calls++
+      assert.equal(init.headers.Authorization, 'private-token')
+      now += 220
+      lastResponse = new Response('[]', { status: 200 })
+      lastResponse.text = async () => { now += 3; return '[]' }
+      return lastResponse
+    },
+  })
+  await module.createClient()
+  assert.equal(options.global, undefined)
+  await module.createClient({ measureDuplicateBomRead: true })
+  const response = await options.global.fetch('https://fixture.supabase.co/rest/v1/bom_item?material_id=private-id', { headers: { Authorization: 'private-token' } })
+  assert.equal(response, lastResponse)
+  assert.equal(logs.length, 0)
+  assert.equal(await response.text(), '[]')
+  assert.equal(calls, 1)
+  assert.equal(logs[0].headers_ms, 220)
+  assert.equal(logs[0].body_ms, 3)
+  assert.equal(logs[0].decoded_body_bytes, 2)
+  assert.doesNotMatch(JSON.stringify(logs), /private|secret/)
+  const other = await options.global.fetch('https://fixture.supabase.co/rest/v1/mat_master', { headers: { Authorization: 'private-token' } })
+  await other.text()
+  assert.equal(logs.length, 1)
+})
 class ReceiptError extends Error {
   constructor(message, status) { super(message); this.status = status }
 }

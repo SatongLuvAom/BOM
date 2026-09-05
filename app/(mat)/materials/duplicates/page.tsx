@@ -8,7 +8,7 @@ import { getCachedActiveCategories, getCachedActiveMaterialTypes } from '@/lib/s
 export const dynamic = 'force-dynamic'
 
 export default async function MaterialDuplicatesPage() {
-  const supabase = await createClient()
+  const supabase = await createClient({ measureDuplicateBomRead: true })
   const [categories, materialTypes] = await Promise.all([
     getCachedActiveCategories(),
     getCachedActiveMaterialTypes(),
