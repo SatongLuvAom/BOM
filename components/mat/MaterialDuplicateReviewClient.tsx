@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
+import { useI18n } from '@/lib/i18n/client'
 import type { MatCategory, MaterialType } from '@/types/mat'
 import type { DuplicateDecision, DuplicateConfidence, DuplicateStatus, MaterialDuplicateGroup } from '@/lib/server/material-duplicates'
 
@@ -95,6 +96,7 @@ export function MaterialDuplicateReviewClient({
   materialTypes,
   initialError = '',
 }: MaterialDuplicateReviewClientProps) {
+  const { text } = useI18n()
   const [groupRows, setGroupRows] = useState(groups)
   const [confidence, setConfidence] = useState<DuplicateConfidence | ''>('')
   const [categoryId, setCategoryId] = useState('')
@@ -207,30 +209,30 @@ export function MaterialDuplicateReviewClient({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-i18n-managed>
       {(message || error) && (
         <div className={`rounded-xl border px-4 py-3 text-sm ${error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
-          {error || message}
+          {text(error || message)}
         </div>
       )}
 
       <section className="rounded-xl border border-stone-200 bg-white shadow-sm">
         <div className="grid grid-cols-1 gap-3 p-4 lg:grid-cols-[150px_1fr_1fr_auto_auto] lg:items-end">
           <label>
-            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Confidence</span>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">{text('Confidence')}</span>
             <select
               value={confidence}
               onChange={(event) => setConfidence(event.target.value as DuplicateConfidence | '')}
               className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm"
             >
-              <option value="">All</option>
-              <option value="HIGH">HIGH</option>
-              <option value="MEDIUM">MEDIUM</option>
-              <option value="LOW">LOW</option>
+              <option value="">{text('All')}</option>
+              <option value="HIGH">{text('HIGH')}</option>
+              <option value="MEDIUM">{text('MEDIUM')}</option>
+              <option value="LOW">{text('LOW')}</option>
             </select>
           </label>
           <label>
-            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Category</span>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">{text('Category')}</span>
             <select
               value={categoryId}
               onChange={(event) => {
@@ -239,7 +241,7 @@ export function MaterialDuplicateReviewClient({
               }}
               className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm"
             >
-              <option value="">All categories</option>
+              <option value="">{text('All categories')}</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   [{category.code_prefix ?? category.cat_code}] {category.cat_name_th}
@@ -248,13 +250,13 @@ export function MaterialDuplicateReviewClient({
             </select>
           </label>
           <label>
-            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Material type</span>
+            <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">{text('Material type')}</span>
             <select
               value={typeId}
               onChange={(event) => setTypeId(event.target.value)}
               className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm"
             >
-              <option value="">All material types</option>
+              <option value="">{text('All material types')}</option>
               {filteredTypes.map((type) => (
                 <option key={type.id} value={type.id}>
                   [{type.code_prefix}] {type.name}
@@ -268,7 +270,7 @@ export function MaterialDuplicateReviewClient({
               checked={unresolvedOnly}
               onChange={(event) => setUnresolvedOnly(event.target.checked)}
             />
-            Unresolved only
+            {text('Unresolved only')}
           </label>
           <button
             type="button"
@@ -276,7 +278,7 @@ export function MaterialDuplicateReviewClient({
             disabled={scanning}
             className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {scanning ? 'Scanning...' : 'Run duplicate scan'}
+            {text(scanning ? 'Scanning...' : 'Run duplicate scan')}
           </button>
         </div>
       </section>
@@ -285,7 +287,7 @@ export function MaterialDuplicateReviewClient({
         <section className="rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4">
             <div>
-              <h2 className="text-base font-bold text-slate-950">Duplicate groups</h2>
+              <h2 className="text-base font-bold text-slate-950">{text('Duplicate groups')}</h2>
               <p className="mt-1 text-sm text-slate-500">{filteredGroups.length.toLocaleString()} groups shown</p>
             </div>
             <Badge label={`${groupRows.length} total`} color="gray" />
@@ -294,7 +296,7 @@ export function MaterialDuplicateReviewClient({
           <div className="max-h-[760px] overflow-y-auto">
             {filteredGroups.length === 0 ? (
               <div className="px-5 py-10 text-sm text-slate-400">
-                No duplicate groups match the current filters. Run a scan or clear filters.
+                {text('No duplicate groups match the current filters. Run a scan or clear filters.')}
               </div>
             ) : filteredGroups.map((group) => (
               <button
@@ -313,11 +315,11 @@ export function MaterialDuplicateReviewClient({
                   <Badge label={group.confidence_level} color={confidenceColor[group.confidence_level]} />
                   <Badge label={group.status} color={statusColor[group.status]} />
                   <span className={`rounded-full px-2 py-1 text-xs font-bold ${reviewKindClass(group)}`}>
-                    {reviewKind(group)}
+                    {text(reviewKind(group))}
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-slate-400">
-                  Updated {new Date(group.updated_at).toLocaleString('th-TH')}
+                  {text('Updated')} {new Date(group.updated_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}
                 </p>
               </button>
             ))}
@@ -327,7 +329,7 @@ export function MaterialDuplicateReviewClient({
         <section className="rounded-xl border border-stone-200 bg-white shadow-sm">
           {!selected ? (
             <div className="px-6 py-12 text-sm text-slate-400">
-              No duplicate group selected.
+              {text('No duplicate group selected.')}
             </div>
           ) : (
             <>
@@ -339,13 +341,13 @@ export function MaterialDuplicateReviewClient({
                       <Badge label={selected.status} color={statusColor[selected.status]} />
                       <span className="font-mono text-sm font-bold text-slate-800">{selected.max_score}/100</span>
                       <span className={`rounded-full px-2 py-1 text-xs font-bold ${reviewKindClass(selected)}`}>
-                        {reviewKind(selected)}
+                        {text(reviewKind(selected))}
                       </span>
                     </div>
                     <p className="mt-2 text-sm text-slate-500">{selected.recommended_action}</p>
                     {selectedHasSpecRisk && (
                       <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                        พบความเสี่ยงเรื่องสเปกต่างกัน จึงไม่ควรทำเครื่องหมายว่า “พร้อมรวมรายการ”
+                        {text('พบความเสี่ยงเรื่องสเปกต่างกัน จึงไม่ควรทำเครื่องหมายว่า “พร้อมรวมรายการ”')}
                       </p>
                     )}
                   </div>
@@ -355,12 +357,12 @@ export function MaterialDuplicateReviewClient({
 
               <div className="space-y-5 p-5">
                 <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-4">
-                  <h3 className="text-sm font-bold text-slate-900">Matched reasons</h3>
+                  <h3 className="text-sm font-bold text-slate-900">{text('Matched reasons')}</h3>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(() => {
                       const reasons = selected.candidates[0]?.matched_reasons ?? []
                       if (reasons.length === 0) {
-                        return <span className="text-sm text-slate-400">No reasons recorded.</span>
+                        return <span className="text-sm text-slate-400">{text('No reasons recorded.')}</span>
                       }
 
                       return reasons.map((reason) => (
@@ -391,13 +393,13 @@ export function MaterialDuplicateReviewClient({
 
                 <div className="rounded-xl border border-stone-200 p-4">
                   <label>
-                    <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Decision note</span>
+                    <span className="mb-1 block text-xs font-bold uppercase tracking-[0.08em] text-slate-400">{text('Decision note')}</span>
                     <textarea
                       value={note}
                       onChange={(event) => setNote(event.target.value)}
                       rows={3}
                       className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm"
-                      placeholder="Optional review note"
+                      placeholder={text('Optional review note')}
                     />
                   </label>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -420,20 +422,20 @@ export function MaterialDuplicateReviewClient({
                               : 'bg-emerald-700 hover:bg-emerald-800'
                           }`}
                         >
-                          {saving === decision ? 'กำลังบันทึก...' : decisionLabels[decision]}
+                          {text(saving === decision ? 'กำลังบันทึก...' : decisionLabels[decision])}
                         </button>
                       )
                     })}
                   </div>
                   {selected.decisions.length > 0 && (
                     <div className="mt-4 border-t border-stone-100 pt-3">
-                      <h4 className="text-xs font-bold uppercase tracking-[0.08em] text-slate-400">Decision history</h4>
+                      <h4 className="text-xs font-bold uppercase tracking-[0.08em] text-slate-400">{text('Decision history')}</h4>
                       <div className="mt-2 space-y-2">
                         {selected.decisions.slice(0, 5).map((decision) => (
                           <div key={decision.id} className="rounded-lg bg-stone-50 px-3 py-2 text-sm">
-                            <p className="font-semibold text-slate-800">{decisionLabels[decision.decision]}</p>
+                            <p className="font-semibold text-slate-800">{text(decisionLabels[decision.decision])}</p>
                             {decision.note && <p className="mt-1 text-slate-500">{decision.note}</p>}
-                            <p className="mt-1 text-xs text-slate-400">{new Date(decision.decided_at).toLocaleString('th-TH')}</p>
+                            <p className="mt-1 text-xs text-slate-400">{new Date(decision.decided_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</p>
                           </div>
                         ))}
                       </div>
@@ -450,6 +452,7 @@ export function MaterialDuplicateReviewClient({
 }
 
 function SideBySideComparison({ group }: { group: MaterialDuplicateGroup }) {
+  const { text } = useI18n()
   const [left, right] = group.candidates
   if (!left?.material || !right?.material) return null
 
@@ -473,16 +476,16 @@ function SideBySideComparison({ group }: { group: MaterialDuplicateGroup }) {
   return (
     <div className="rounded-xl border border-stone-200 bg-white">
       <div className="border-b border-stone-200 px-4 py-3">
-        <h3 className="text-sm font-bold text-slate-900">เทียบข้อมูลข้างกัน</h3>
+        <h3 className="text-sm font-bold text-slate-900">{text('เทียบข้อมูลข้างกัน')}</h3>
         <p className="mt-1 text-xs text-slate-500">
-          แถวสีเหลืองคือข้อมูลต่างกัน โดยเฉพาะ Spec key / สเปก ไม่ควรรวมรายการถ้ายังไม่แน่ใจ
+          {text('แถวสีเหลืองคือข้อมูลต่างกัน โดยเฉพาะ Spec key / สเปก ไม่ควรรวมรายการถ้ายังไม่แน่ใจ')}
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-stone-50 text-left text-xs uppercase tracking-[0.06em] text-slate-400">
             <tr>
-              <th className="w-32 px-4 py-3">ข้อมูล</th>
+              <th className="w-32 px-4 py-3">{text('ข้อมูล')}</th>
               <th className="px-4 py-3">{materialCodeLabel(left)}</th>
               <th className="px-4 py-3">{materialCodeLabel(right)}</th>
             </tr>
@@ -493,7 +496,7 @@ function SideBySideComparison({ group }: { group: MaterialDuplicateGroup }) {
               return (
                 <tr key={label} className={differs ? 'bg-amber-50/60' : ''}>
                   <th className="border-t border-stone-100 px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.06em] text-slate-400">
-                    {label}
+                    {text(label)}
                   </th>
                   <td className="border-t border-stone-100 px-4 py-3 text-slate-700">{displayCell(leftValue)}</td>
                   <td className="border-t border-stone-100 px-4 py-3 text-slate-700">{displayCell(rightValue)}</td>
@@ -559,9 +562,10 @@ function MaterialCompareCard({ candidate }: { candidate: MaterialDuplicateGroup[
 }
 
 function CompareRow({ label, value }: { label: string; value: string }) {
+  const { text } = useI18n()
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3 border-b border-stone-100 pb-2 last:border-b-0 last:pb-0">
-      <dt className="text-xs font-bold uppercase tracking-[0.06em] text-slate-400">{label}</dt>
+      <dt className="text-xs font-bold uppercase tracking-[0.06em] text-slate-400">{text(label)}</dt>
       <dd className="min-w-0 break-words text-slate-700">{value}</dd>
     </div>
   )
