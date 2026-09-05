@@ -15,7 +15,8 @@ import { fillMissingReceiptItemUoms } from '@/lib/server/receipt-uom'
 const RECEIPT_BUCKET = 'boq-attachments'
 const MAX_AI_FILE_SIZE = 10 * 1024 * 1024
 const MAX_GEMINI_MODELS = 5
-const GEMINI_MODEL_TIMEOUT_MS = 60_000
+const GEMINI_MODEL_TIMEOUT_MS = 30_000
+const GEMINI_TOTAL_TIMEOUT_MS = 90_000
 const DEFAULT_GEMINI_MODEL_FALLBACK_ORDER = [
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
@@ -342,9 +343,12 @@ async function callGemini(file: ReceiptFile) {
   }
 
   let lastFailure: { status: number; text: string; model: string } | null = null
+  const startedAt = performance.now()
   for (const model of models) {
+    const remainingMs = GEMINI_TOTAL_TIMEOUT_MS - (performance.now() - startedAt)
+    if (remainingMs <= 0) break
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), GEMINI_MODEL_TIMEOUT_MS)
+    const timeout = setTimeout(() => controller.abort(), Math.min(GEMINI_MODEL_TIMEOUT_MS, remainingMs))
     let result: { ok: boolean; status: number; text: string; model: string }
 
     try {
@@ -366,6 +370,10 @@ async function callGemini(file: ReceiptFile) {
 
     lastFailure = result
     if (!shouldFallbackGeminiModel(result.status, result.text)) break
+  }
+
+  if (performance.now() - startedAt >= GEMINI_TOTAL_TIMEOUT_MS) {
+    throw new ReceiptImportError('AI ใช้เวลาเกิน 90 วินาที กรุณาลองใหม่ภายหลังหรือกรอกข้อมูลเอง', 504, 'BAD_REQUEST')
   }
 
   if (lastFailure) {
@@ -404,16 +412,54 @@ function getGeminiModelFallbackOrder() {
   return models
 }
 
+export async function checkReceiptAiModels() {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new ReceiptImportError('ยังไม่ได้ตั้งค่า Gemini API key', 503, 'BAD_REQUEST')
+  const results = []
+  // Sequential small synthetic requests, with a separate bounded diagnostic budget.
+  const started = performance.now()
+  for (const model of getGeminiModelFallbackOrder()) {
+    const remaining = 30000 - (performance.now() - started)
+    if (remaining <= 0) {
+      results.push({ model, status: 'not_checked', durationMs: 0 })
+      continue
+    }
+    const attempt = performance.now()
+    try {
+      const result = await requestGeminiModel(apiKey, model, {
+        contents: [{ parts: [{ text: 'Return the JSON object {"ok":true}.' }] }],
+        generationConfig: { response_mime_type: 'application/json', maxOutputTokens: 128 },
+      }, AbortSignal.timeout(Math.max(1, Math.floor(Math.min(6000, remaining)))))
+      results.push({ model, status: result.ok ? 'available' : result.status === 429 ? 'quota_exceeded' : result.status === 404 ? 'unavailable' : 'failed', httpStatus: result.status, durationMs: Math.round(performance.now() - attempt) })
+    } catch {
+      results.push({ model, status: 'timeout_or_network', durationMs: Math.round(performance.now() - attempt) })
+    }
+  }
+  console.info(JSON.stringify({ event: 'receipt_ai_model_check', results }))
+  return results
+}
+
 async function requestGeminiModel(
   apiKey: string,
   model: string,
   baseBody: Record<string, unknown>,
   signal: AbortSignal,
 ) {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+  const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`
+  const endpoint = `${modelUrl}:generateContent`
   const headers = {
     'Content-Type': 'application/json',
     'x-goog-api-key': apiKey,
+  }
+
+  // Verify access with the same key and deadline before sending the document.
+  const availability = await fetch(modelUrl, { headers, signal })
+  if (!availability.ok) {
+    return { ok: false, status: availability.status, text: await availability.text(), model }
+  }
+  const metadata = await availability.json()
+  if (!metadata.supportedGenerationMethods?.includes('generateContent')) {
+    return { ok: false, status: 404, text: 'Model does not support generateContent', model }
   }
 
   let res = await fetch(endpoint, {

@@ -616,6 +616,9 @@ function normalizeMaterialRow(row: any): DuplicateMaterial {
 
 async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: string[]): Promise<DuplicateMaterial[]> {
   const ids = Array.from(new Set((materialIds ?? []).filter(Boolean)))
+  // An empty candidate group must not turn a detail lookup into a full scan.
+  if (materialIds !== undefined && ids.length === 0) return []
+  const started = performance.now()
   let query = supabase
     .from('mat_master')
     .select(`
@@ -689,6 +692,7 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
 
   const bomCounts = countByMaterial(bomRes.data)
   const boqCounts = countByMaterial(boqRes.data)
+  console.info(JSON.stringify({ event: 'duplicate_material_read', duration_ms: Math.round(performance.now() - started), material_count: materials.length, scoped: materialIds !== undefined }))
 
   return materials.map((material) => ({
     ...material,

@@ -98,6 +98,9 @@ export function ReceiptReviewClient({
   const [postingReady, setPostingReady] = useState(false)
   const [uploadingFile, setUploadingFile] = useState(false)
   const [readingAi, setReadingAi] = useState(false)
+  const [aiElapsedSeconds, setAiElapsedSeconds] = useState(0)
+  const [checkingAi, setCheckingAi] = useState(false)
+  const [aiHealth, setAiHealth] = useState<string | null>(null)
   const [fillingUoms, setFillingUoms] = useState(false)
   const [matchingMaterials, setMatchingMaterials] = useState(false)
   const [creatingCandidates, setCreatingCandidates] = useState(false)
@@ -153,6 +156,14 @@ export function ReceiptReviewClient({
     () => buildReceiptFlowStatus(receipt.status, Boolean(effectiveSupplierId), items.length, readiness, postBlockers.length),
     [receipt.status, effectiveSupplierId, items.length, readiness, postBlockers.length],
   )
+  const currentStep = !supplierConfirmed ? 1 : postBlockers.length > 0 ? 2 : 3
+
+  useEffect(() => {
+    if (!readingAi) return
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => setAiElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000)
+    return () => window.clearInterval(timer)
+  }, [readingAi])
 
   useEffect(() => {
     if (newSupplierDraft) supplierDialog.current?.showModal()
@@ -384,13 +395,14 @@ export function ReceiptReviewClient({
 
   async function readReceiptWithAi(event?: React.MouseEvent<HTMLButtonElement>) {
     event?.preventDefault()
-    if (isPosted || !hasReceiptFile) return
+    if (isPosted || readingAi || !hasReceiptFile) return
     let replaceItems = false
     if (items.length > 0) {
       replaceItems = confirm('สลิปนี้มีรายการอยู่แล้ว ต้องการแทนที่ด้วยผลจาก AI หรือไม่')
       if (!replaceItems) return
     }
 
+    setAiElapsedSeconds(0)
     setReadingAi(true)
     clearMessages()
     try {
@@ -414,8 +426,27 @@ export function ReceiptReviewClient({
           ? 'ระบบอ่านข้อมูลได้บางส่วน กรุณาตรวจสอบอีกครั้ง'
           : 'อ่านสลิปสำเร็จ กรุณาตรวจสอบข้อมูลก่อนบันทึก',
       )
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'ติดต่อ AI ไม่สำเร็จ กรุณาโหลดสลิปใหม่เพื่อตรวจสถานะก่อนลองอีกครั้ง')
     } finally {
       setReadingAi(false)
+    }
+  }
+
+  async function checkAiConnection() {
+    if (checkingAi || readingAi) return
+    setCheckingAi(true)
+    setAiHealth(null)
+    try {
+      const res = await fetch('/api/receipts/ai-health', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'ตรวจ AI ไม่สำเร็จ')
+      const labels: Record<string, string> = { available: 'พร้อมใช้', quota_exceeded: 'โควตาเต็ม', unavailable: 'ไม่พบรุ่นนี้', failed: 'เรียกไม่สำเร็จ', timeout_or_network: 'รอเกินเวลาหรือเครือข่ายขัดข้อง', not_checked: 'ยังไม่ได้ตรวจ' }
+      setAiHealth(json.data.map((result: { model: string; status: string }) => `${result.model}: ${labels[result.status] || result.status}`).join('\n'))
+    } catch (error) {
+      setAiHealth(error instanceof Error ? error.message : 'ตรวจ AI ไม่สำเร็จ')
+    } finally {
+      setCheckingAi(false)
     }
   }
 
@@ -636,6 +667,18 @@ export function ReceiptReviewClient({
 
   return (
     <div className={`${styles.workflow} space-y-5`}>
+      <nav aria-label="ขั้นตอนตรวจสลิป" className="rounded-2xl border border-slate-200 bg-white p-4">
+        <ol className="grid grid-cols-3 gap-2 text-sm font-semibold">
+          {['ยืนยันร้าน', 'ตรวจรายการ', 'บันทึกราคา'].map((label, index) => (
+            <li key={label} aria-current={!isPosted && currentStep === index + 1 ? 'step' : undefined}>
+              <a href={['#receipt-shop', '#receipt-items', '#receipt-post'][index]} className={`block rounded-xl px-3 py-3 ${isPosted || currentStep > index + 1 ? 'bg-emerald-50 text-emerald-800' : currentStep === index + 1 ? 'bg-blue-50 text-blue-900' : 'text-slate-500'}`}>
+                {index + 1}. {label}
+              </a>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 text-sm text-slate-600">{isPosted ? 'บันทึกราคาแล้ว' : currentStep === 1 ? 'เริ่มจากเลือกร้านให้ตรงกับเอกสาร แล้วกดยืนยันร้าน' : currentStep === 2 ? 'ตรวจชื่อวัสดุ จำนวน หน่วย และราคาให้ครบก่อนบันทึก' : 'ตรวจครบแล้ว กดบันทึกราคาเข้าระบบได้เลย'}</p>
+      </nav>
       {(message || warning || error || duplicateReceipt) && (
         <div role={error ? 'alert' : 'status'} className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
           error
@@ -653,7 +696,7 @@ export function ReceiptReviewClient({
         </div>
       )}
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <section id="receipt-shop" className="scroll-mt-24 grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -801,6 +844,13 @@ export function ReceiptReviewClient({
                 {readingAi ? 'กำลังอ่านสลิปด้วย AI...' : 'อ่านสลิปด้วย AI อีกครั้ง'}
               </button>
             </div>
+            {readingAi && (
+              <div role="status" aria-live="polite" className="mt-3 rounded-xl bg-white p-3 text-sm">
+                <p>{aiElapsedSeconds < 30 ? 'กำลังส่งเอกสารและรอผลจาก AI' : aiElapsedSeconds < 90 ? 'ยังรอผลจาก AI ระบบอาจลองโมเดลสำรองเมื่อรุ่นแรกไม่พร้อม' : 'หากอ่านสำเร็จ ระบบจะตรวจผลและบันทึกข้อมูลฉบับร่าง กรุณารอสถานะตอบกลับ'}</p>
+                <p role="timer" aria-live="off" className="mt-1 tabular-nums">รอแล้ว {aiElapsedSeconds} วินาที</p>
+                <p className="mt-1 text-xs">จำกัดเวลาลองโมเดลรวม 90 วินาที ไม่รวมรับส่งไฟล์และบันทึกผล</p>
+              </div>
+            )}
             {!hasReceiptFile && (
               <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
                 กรุณาแนบไฟล์สลิปก่อนอ่านด้วย AI
@@ -839,11 +889,14 @@ export function ReceiptReviewClient({
             {postBlockers.length === 0 ? (
               <p className="mt-2 text-sm font-semibold text-emerald-700">พร้อมบันทึกราคาเข้าระบบ</p>
             ) : (
-              <ul className="mt-2 space-y-1 text-sm text-amber-700">
+              <details className="mt-2 text-sm text-amber-700">
+                <summary className="cursor-pointer">ดูสิ่งที่ต้องตรวจ ({postBlockers.length})</summary>
+                <ul className="mt-2 space-y-1">
                 {postBlockers.slice(0, 6).map((blocker) => (
                   <li key={blocker}>- {blocker}</li>
                 ))}
-              </ul>
+                </ul>
+              </details>
             )}
           </div>
         </div>
@@ -860,11 +913,11 @@ export function ReceiptReviewClient({
           <ReceiptFilePreview receipt={receipt} />
         </div>
 
-        <section className={`${styles.itemsPanel} min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm`}>
+        <section id="receipt-items" className={`${styles.itemsPanel} scroll-mt-24 min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm`}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-blue-950">รายการจากสลิป <span className="text-sm font-medium text-slate-500">({items.length})</span></h2>
-            <p className="text-sm text-slate-500">เพิ่มรายการเอง เลือกวัสดุ แล้วกำหนด action ต่อรายการ</p>
+            <p className="text-sm text-slate-500">ตรวจวัสดุ จำนวน หน่วย และราคาตามเอกสาร</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {!isPosted && (
@@ -872,27 +925,27 @@ export function ReceiptReviewClient({
                 {matchingMaterials ? 'กำลังจับคู่วัสดุ...' : 'จับคู่วัสดุอัตโนมัติ'}
               </button>
             )}
-            {!isPosted && (
+            {!isPosted && <details className="rounded-xl border border-slate-200 p-2">
+              <summary className="cursor-pointer px-2 py-1 text-sm font-semibold">เครื่องมือเพิ่มเติม</summary>
+              <div className="mt-3 flex max-w-sm flex-col gap-2">
+              <button type="button" onClick={checkAiConnection} disabled={checkingAi || readingAi} className="btn-secondary">{checkingAi ? 'กำลังตรวจ AI...' : 'ตรวจการเชื่อมต่อ AI'}</button>
+              <p className="text-xs text-slate-500">ส่งข้อความทดสอบสั้น ๆ ใช้โควตา AI เล็กน้อย</p>
+              {aiHealth && <p role="status" className="whitespace-pre-line text-xs text-slate-700">{aiHealth}</p>}
               <button disabled={!supplierConfirmed || readingAi || savingHeader || creatingCandidates || matchingMaterials || fillingUoms || posting || postingReady || repairingReceipt} type="button" onClick={() => createMaterialCandidates()} className="btn-secondary">
                 {creatingCandidates ? 'กำลังสร้าง Draft วัสดุ...' : 'สร้าง Draft วัสดุจากรายการที่ไม่พบ'}
               </button>
-            )}
-            {!isPosted && (
               <button disabled={repairingReceipt || fillingUoms || matchingMaterials || posting || postingReady} type="button" onClick={repairReceiptState} className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50">
                 {repairingReceipt ? 'กำลังซ่อมสถานะ...' : 'ซ่อมสถานะสลิปนี้'}
               </button>
-            )}
-            {!isPosted && (
               <button disabled={fillingUoms || matchingMaterials || posting || postingReady || repairingReceipt} type="button" onClick={fillMissingUoms} className="btn-secondary">
                 {fillingUoms ? 'กำลังเติมหน่วย...' : 'เติมหน่วยอัตโนมัติ'}
               </button>
-            )}
-            {!isPosted && (
               <button disabled={postingReady || posting || matchingMaterials || repairingReceipt || savingHeader || readiness.ready === 0 || !effectiveSupplierId || receiptCalculation.issues.length > 0} type="button" onClick={postReadyItems} className="btn-primary">
                 {postingReady ? 'กำลังบันทึก...' : `บันทึกราคาที่พร้อมทั้งหมด (${readiness.ready})`}
               </button>
-            )}
-            <button disabled={isPosted || posting || postingReady || matchingMaterials || repairingReceipt || savingHeader || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary">
+              </div>
+            </details>}
+            <button id="receipt-post" disabled={isPosted || posting || postingReady || matchingMaterials || repairingReceipt || savingHeader || postBlockers.length > 0} type="button" onClick={postReceipt} className="btn-primary scroll-mt-24">
               {posting ? 'กำลังบันทึกราคา...' : isPosted ? 'สลิปนี้ถูกบันทึกเข้าระบบแล้ว' : 'บันทึกราคาเข้าระบบ'}
             </button>
           </div>

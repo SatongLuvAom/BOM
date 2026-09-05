@@ -419,6 +419,7 @@ for (const selectedSupplier of [null, supplierA]) {
       else process.env.GEMINI_API_KEY = originalKey
     })
     t.mock.method(globalThis, 'fetch', async (_url, options) => {
+      if (!options.method) return Response.json({ supportedGenerationMethods: ['generateContent'] })
       const body = JSON.parse(options.body)
       assert.ok(body.contents[0].parts.some((part) => part.text?.includes('ห้ามนำข้อมูลผู้ซื้อ')))
       return Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({
