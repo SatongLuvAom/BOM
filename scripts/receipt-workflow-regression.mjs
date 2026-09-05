@@ -57,6 +57,46 @@ test('transport timing is opt-in, preserves request/response and excludes secret
 class ReceiptError extends Error {
   constructor(message, status) { super(message); this.status = status }
 }
+function extractionFixture() {
+  return compile(source('lib/server/receipt-ai.ts'), {
+    zod,
+    '@/lib/server/receipt-import': { ReceiptImportError: ReceiptError },
+    '@/lib/receipt-calculations': compile(source('lib/receipt-calculations.ts'), {}),
+  }).validateReceiptExtraction
+}
+
+test('AI numeric extraction rejects ambiguous text with field-specific warnings', () => {
+  const extract = extractionFixture()
+  for (const input of ['10/2', '1,5', '1e3', '12,34', '1.234,56', '1 000', 'THB 100', '10 แผ่น', '(100)', '100-', '-', '.', 'unknown']) {
+    const result = extract(JSON.stringify({items:[{name:'fixture',qty:input,unitPrice:input,lineTotal:input}],receipt:{subtotal:input,vat:input,discount:input,grandTotal:input}}))
+    assert.equal(result.items[0].qty, null, input)
+    assert.equal(result.items[0].unitPrice, null, input)
+    assert.equal(result.items[0].lineTotal, null, input)
+    for (const value of Object.values(result.receipt)) assert.equal(value, null)
+    assert.equal(result.warnings.length, 7, input)
+    assert.ok(result.warnings.some(w=>w.includes('ราคา/หน่วยบรรทัด 1')))
+    assert.equal(result.items[0].action, 'needs_review')
+  }
+})
+
+test('AI numeric extraction preserves clear numbers and missing values', () => {
+  const extract = extractionFixture()
+  for (const [input,expected] of [[607.48,607.48],[0,0],['0',0],['1,234.50',1234.5],['1,234,567',1234567],[' ๖๐๗.๔๘ ',607.48],['.7',0.7],['0012',12],[null,null],['',null],['   ',null]]) {
+    const result = extract(JSON.stringify({items:[{name:'fixture',unitPrice:input}]}))
+    assert.equal(result.items[0].unitPrice,expected,String(input))
+    assert.equal(result.warnings.length,0,String(input))
+  }
+})
+
+test('AI extraction retains negative warning and rejects overflow', () => {
+  const extract = extractionFixture()
+  for (const input of [-1,'-1','9'.repeat(400)]) {
+    const result = extract(JSON.stringify({items:[{name:'fixture',unitPrice:input}]}))
+    assert.equal(result.items[0].unitPrice,null)
+    assert.equal(result.warnings.length,1)
+    if (input === -1 || input === '-1') assert.match(result.warnings[0],/ติดลบ/)
+  }
+})
 function aiFixture(responder) {
   let now = 0
   const calls = []

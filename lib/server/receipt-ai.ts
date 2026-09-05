@@ -128,13 +128,20 @@ function normalizeDigits(value: string) {
 
 function toPositiveNumber(value: unknown, warnings: string[], label: string) {
   if (value === null || value === undefined || value === '') return null
-  const normalized = normalizeDigits(String(value))
-    .replace(/,/g, '')
-    .replace(/[^\d.-]/g, '')
-  if (!normalized || normalized === '-' || normalized === '.') return null
+  const normalized = normalizeDigits(String(value)).trim()
+  if (!normalized) return null
 
-  const numberValue = Number(normalized)
-  if (!Number.isFinite(numberValue)) return null
+  // Validate before removing thousands separators; stripping arbitrary text changes quantities and prices.
+  if (typeof value !== 'number' && !/^-?(?:\d+|\d{1,3}(?:,\d{3})+|(?=\.\d))(?:\.\d+)?$/.test(normalized)) {
+    warnings.push(`${label} มีรูปแบบตัวเลขไม่ชัดเจน ระบบเว้นว่างไว้ กรุณาตรวจเอกสาร`)
+    return null
+  }
+
+  const numberValue = typeof value === 'number' ? value : Number(normalized.replace(/,/g, ''))
+  if (!Number.isFinite(numberValue)) {
+    warnings.push(`${label} เป็นตัวเลขที่ระบบไม่รองรับ ระบบเว้นว่างไว้ กรุณาตรวจเอกสาร`)
+    return null
+  }
   if (numberValue < 0) {
     warnings.push(`${label} เป็นค่าติดลบ ระบบจึงไม่บันทึกค่านี้`)
     return null
