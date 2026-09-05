@@ -15,6 +15,8 @@ import {
   type ReceiptDuplicateNotice,
 } from '@/lib/receipt-duplicate-response'
 import { routes } from '@/lib/routes'
+import { resolveMaterialFormProfile } from '@/lib/material-form-profile'
+import { SPEC_PROFILES, readSpecDetails, writeSpecDetails, specDetailError, isNumericSpecField, type SpecProfile, type SpecDetails } from '@/lib/receipt-spec-fields'
 import { getReceiptSupplierDraft, matchReceiptSuppliers } from '@/lib/receipt-supplier-match'
 import type {
   MaterialCandidate,
@@ -1283,6 +1285,13 @@ function CandidateReviewModal({
   onClose: () => void
 }) {
   const availableTypes = materialTypes.filter((type) => !candidate.proposed_category_id || type.category_id === candidate.proposed_category_id)
+  const details = readSpecDetails(candidate.proposed_spec)
+  const detailsError = specDetailError(details)
+  const mappedProfile = resolveMaterialFormProfile(candidate.proposed_material_type_id, candidate.proposed_category_id, materialTypes, categories.map(category => ({ ...category, is_active: category.is_active === true }))).profile
+  const profileNeedsReview = !!details.profile && details.profile !== mappedProfile
+  function changeDetails(next: SpecDetails) {
+    onChange({ ...candidate, proposed_spec: writeSpecDetails(next) })
+  }
   const duplicateMatches = candidate.duplicate_warning?.matches ?? []
   const dialogRef = useRef<HTMLDialogElement>(null)
   const errorPanel = useRef<HTMLParagraphElement>(null)
@@ -1375,8 +1384,8 @@ function CandidateReviewModal({
           <Field label="Spec key ของรหัส">
             <input value={candidate.proposed_code_spec_key ?? ''} onChange={(e) => set('proposed_code_spec_key', e.target.value.toUpperCase())} className={inputClass} />
           </Field>
-          <Field label="สเปก">
-            <input value={candidate.proposed_spec ?? ''} onChange={(e) => set('proposed_spec', e.target.value)} className={inputClass} />
+          <Field label="สเปกเดิม / หมายเหตุ">
+            <textarea value={details.notes} onChange={(e) => changeDetails({ ...details, notes: e.target.value })} className={inputClass} />
           </Field>
           <Field label="แบรนด์">
             <input value={candidate.proposed_brand ?? ''} onChange={(e) => set('proposed_brand', e.target.value)} className={inputClass} />
@@ -1398,20 +1407,43 @@ function CandidateReviewModal({
           </Field>
         </div>
 
+        <fieldset disabled={saving} className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/30 p-4">
+          <legend className="px-2 font-bold text-blue-950">รายละเอียดตามประเภท</legend>
+          <label className="block text-sm font-semibold text-slate-700" htmlFor="draft-spec-profile">ประเภทสำหรับเลือกช่องกรอก</label>
+          <select id="draft-spec-profile" value={details.profile} className={inputClass} onChange={(e) => {
+            if (Object.values(details.values).some(Boolean) && !window.confirm('เปลี่ยนประเภทจะล้างรายละเอียดเฉพาะประเภทเดิม ชื่อสินค้า สเปกเดิม ร้าน และราคายังคงอยู่ ต้องการเปลี่ยนหรือไม่?')) return
+            changeDetails({ ...details, profile: e.target.value as SpecProfile, values: {} })
+          }}>
+            <option value="">ยังไม่ระบุ / ใช้สเปกเดิม</option>
+            {Object.entries(SPEC_PROFILES).map(([key,profile]) => <option key={key} value={key}>{profile.label}</option>)}
+          </select>
+          <p className="mt-2 text-xs text-slate-500">เลือกเองเมื่อไม่มั่นใจ ไม่เปลี่ยนหมวด ชนิด หรือรหัสวัสดุอัตโนมัติ ช่องที่ไม่ทราบเว้นว่างได้เพื่อเก็บ Draft</p>
+          {!details.profile && mappedProfile && <button type="button" className="mt-2 text-sm font-semibold text-blue-700 underline" onClick={() => changeDetails({ ...details, profile: mappedProfile, values: {} })}>ใช้ชุดฟอร์ม{SPEC_PROFILES[mappedProfile].label}ตามชนิดวัสดุที่เลือก</button>}
+          {details.profile && details.profile !== mappedProfile && <p className="mt-2 text-sm text-amber-800">ชุดฟอร์มยังไม่ตรงกับชนิดวัสดุที่ยืนยันได้ กรุณาตรวจหมวดและชนิดก่อนอนุมัติ (เก็บ Draft ได้)</p>}
+          {details.profile && <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            {SPEC_PROFILES[details.profile].fields.map((key,index) => <div key={key}>
+              <label htmlFor={`draft-spec-${index}`} className="mb-1 block text-sm text-slate-700">{key}</label>
+              <input id={`draft-spec-${index}`} value={details.values[key] ?? ''} inputMode={isNumericSpecField(key) ? 'decimal' : 'text'} className={inputClass} onChange={(e) => changeDetails({ ...details, values: { ...details.values, [key]: e.target.value } })} />
+            </div>)}
+          </div>}
+          <p className="mt-3 text-xs text-slate-500">บันทึกไปกับสเปกวัสดุ • {(candidate.proposed_spec ?? '').length}/500 ตัวอักษร • ยังไม่ใช่ข้อมูลที่ AI แยกให้</p>
+          {detailsError && <p role="alert" className="mt-2 text-sm text-red-700">{detailsError}</p>}
+        </fieldset>
+
         <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
           <p className="font-bold text-slate-800">Alias จากสลิป</p>
           <p className="mt-1">{(candidate.proposed_aliases ?? []).join(', ') || '-'}</p>
         </div>
 
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onSave} disabled={saving} className="btn-secondary">
+          <button type="button" onClick={onSave} disabled={saving || !!detailsError} className="btn-secondary">
             {saving ? 'กำลังบันทึก...' : 'บันทึก Draft'}
           </button>
-          <button type="button" onClick={() => onApprove(false)} disabled={saving} className="btn-primary">
+          <button type="button" onClick={() => onApprove(false)} disabled={saving || !!detailsError || profileNeedsReview} className="btn-primary">
             {saving ? 'กำลังสร้างวัสดุ...' : 'อนุมัติและสร้างวัสดุ'}
           </button>
           {needsConfirm && (
-            <button type="button" onClick={() => onApprove(true)} disabled={saving} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50">
+            <button type="button" onClick={() => onApprove(true)} disabled={saving || !!detailsError || profileNeedsReview} className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 disabled:opacity-50">
               ยืนยันสร้างใหม่แม้พบวัสดุคล้ายกัน
             </button>
           )}

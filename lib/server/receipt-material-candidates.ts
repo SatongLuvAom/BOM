@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { readSpecDetails, specDetailError } from '@/lib/receipt-spec-fields'
 import { normalizeMaterialSearchText } from '@/lib/material-master'
 import { inferSpecKeyFromMaterialText, inferTypePrefixFromText } from '@/lib/material-code'
 import { writeAuditLog } from '@/lib/server-utils'
@@ -15,7 +16,7 @@ export const receiptMaterialCandidateUpdateSchema = z.object({
   proposed_category_id: z.string().uuid().nullable().optional(),
   proposed_material_type_id: z.string().uuid().nullable().optional(),
   proposed_code_spec_key: z.string().trim().max(12).nullable().optional(),
-  proposed_spec: z.string().trim().max(500).nullable().optional(),
+  proposed_spec: z.string().trim().max(500).refine(value => !specDetailError(readSpecDetails(value)), 'รายละเอียดวัสดุมีตัวเลขไม่ถูกต้อง').nullable().optional(),
   proposed_brand: z.string().trim().max(100).nullable().optional(),
   proposed_model: z.string().trim().max(100).nullable().optional(),
   proposed_uom_id: z.string().uuid().nullable().optional(),

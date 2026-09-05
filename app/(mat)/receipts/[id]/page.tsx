@@ -41,7 +41,7 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
         .order('uom_code'),
       supabase
         .from('mat_category')
-        .select('id, cat_id, cat_code, cat_name_th, code_prefix')
+        .select('id, cat_id, cat_code, cat_name_th, code_prefix, is_active')
         .eq('is_deleted', false)
         .order('sort_order'),
       supabase

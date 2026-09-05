@@ -78,6 +78,7 @@ export interface ReceiptUom {
 }
 
 export interface ReceiptCategory {
+  is_active?: boolean
   id: string
   cat_id: string
   cat_code: string | null
