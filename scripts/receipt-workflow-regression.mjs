@@ -146,3 +146,38 @@ test('an empty duplicate candidate set never queries the full material table', a
   assert.deepEqual(await module.fetchDuplicateMaterials({ from() { calls++; throw Error('unexpected full scan') } }, []), [])
   assert.equal(calls, 0)
 })
+
+test('duplicate query metrics preserve rows, count each read once and expose no payload', async () => {
+  for (const fallback of [false, true]) {
+    const calls = []
+    const logs = []
+    const db = { from(table) {
+      const result = table === 'mat_master'
+        ? { data: [{ material_id: 'private-id', mat_name_th: 'private-name' }], error: null }
+        : table === 'material_latest_prices' && fallback
+          ? { data: null, error: { code: '42P01', message: 'material_latest_prices does not exist' } }
+          : { data: [], error: null }
+      const query = { select() { return query }, eq() { return query }, in() { return query },
+        limit() { return query }, then(resolve, reject) {
+          calls.push(table)
+          return Promise.resolve(result).then(resolve, reject)
+        } }
+      return query
+    } }
+    const prices = compile(source('lib/server/material-quality-data.ts'), {})
+    const module = compile(source('lib/server/material-duplicates.ts') + '\nexport { fetchDuplicateMaterials };', {
+      '@/lib/server/material-quality-data': prices,
+    }, { console: { info: (value) => logs.push(JSON.parse(value)) } })
+    const rows = await module.fetchDuplicateMaterials(db, ['private-id'])
+    assert.equal(rows[0].mat_name_th, 'private-name')
+    assert.equal(rows[0].bom_usage_count, 0)
+    assert.equal(logs.length, 1)
+    assert.equal(calls.length, fallback ? 7 : 6)
+    assert.equal(new Set(calls).size, calls.length)
+    assert.equal(logs[0].queries.length, calls.length)
+    assert.equal(logs[0].queries.find((m) => m.query === 'mat_master').row_count, 1)
+    assert.equal(logs[0].queries.find((m) => m.query === 'material_latest_prices').error_code, fallback ? '42P01' : null)
+    assert.ok(logs[0].queries.every((m) => m.duration_ms >= 0))
+    assert.doesNotMatch(JSON.stringify(logs), /private-id|private-name/)
+  }
+})

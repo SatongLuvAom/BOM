@@ -619,6 +619,13 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
   // An empty candidate group must not turn a detail lookup into a full scan.
   if (materialIds !== undefined && ids.length === 0) return []
   const started = performance.now()
+  const queryMetrics: { query: string; duration_ms: number; row_count: number | null; error_code: string | null }[] = []
+  async function measureQuery<T extends { data: any; error: any }>(name: string, request: PromiseLike<T>): Promise<T> {
+    const queryStarted = performance.now()
+    const result = await request
+    queryMetrics.push({ query: name, duration_ms: Math.round(performance.now() - queryStarted), row_count: Array.isArray(result.data) ? result.data.length : null, error_code: result.error?.code ?? null })
+    return result
+  }
   let query = supabase
     .from('mat_master')
     .select(`
@@ -635,7 +642,7 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
     query = query.in('material_id', ids)
   }
 
-  const { data, error } = await query.limit(50000)
+  const { data, error } = await measureQuery('mat_master', query.limit(50000))
   if (error) throw new Error(error.message)
 
   const materials: DuplicateMaterial[] = (data ?? []).map((row: any) => normalizeMaterialRow(row))
@@ -644,13 +651,13 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
   if (materialIdList.length === 0) return []
 
   const [aliasRes, supplierMapRes, latestPrices, bomRes, boqRes] = await Promise.all([
-    supabase
+    measureQuery('mat_alias', supabase
       .from('mat_alias')
       .select('material_id, alias_name, normalized_alias')
       .eq('is_deleted', false)
       .in('material_id', materialIdList)
-      .limit(50000),
-    supabase
+      .limit(50000)),
+    measureQuery('mat_supplier_map', supabase
       .from('mat_supplier_map')
       .select(`
         material_id, supplier_id, supplier_sku, supplier_material_name, is_preferred,
@@ -658,20 +665,20 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
       `)
       .eq('is_deleted', false)
       .in('material_id', materialIdList)
-      .limit(50000),
-    fetchLatestPriceMap(supabase, materialIdList),
-    supabase
+      .limit(50000)),
+    fetchLatestPriceMap(supabase, materialIdList, (metric) => queryMetrics.push(metric)),
+    measureQuery('bom_item', supabase
       .from('bom_item')
       .select('material_id')
       .eq('is_deleted', false)
       .in('material_id', materialIdList)
-      .limit(50000),
-    supabase
+      .limit(50000)),
+    measureQuery('boq_item', supabase
       .from('boq_item')
       .select('material_id')
       .eq('is_deleted', false)
       .in('material_id', materialIdList)
-      .limit(50000),
+      .limit(50000)),
   ])
 
   const aliasesByMaterial = new Map<string, DuplicateMaterial['aliases']>()
@@ -692,7 +699,7 @@ async function fetchDuplicateMaterials(supabase: SupabaseLike, materialIds?: str
 
   const bomCounts = countByMaterial(bomRes.data)
   const boqCounts = countByMaterial(boqRes.data)
-  console.info(JSON.stringify({ event: 'duplicate_material_read', duration_ms: Math.round(performance.now() - started), material_count: materials.length, scoped: materialIds !== undefined }))
+  console.info(JSON.stringify({ event: 'duplicate_material_read', duration_ms: Math.round(performance.now() - started), material_count: materials.length, scoped: materialIds !== undefined, queries: queryMetrics }))
 
   return materials.map((material) => ({
     ...material,

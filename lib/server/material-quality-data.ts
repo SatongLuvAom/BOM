@@ -141,6 +141,7 @@ function shouldFallbackToRawPriceQuery(error: { code?: string; message?: string 
 export async function fetchLatestPriceMap(
   supabase: SupabaseLike,
   materialIds?: string[],
+  onQuery?: (metric: { query: string; duration_ms: number; row_count: number | null; error_code: string | null }) => void,
 ) {
   const uniqueIds = Array.from(new Set((materialIds ?? []).filter(Boolean)))
   if (materialIds && uniqueIds.length === 0) {
@@ -161,9 +162,11 @@ export async function fetchLatestPriceMap(
     latestQuery = latestQuery.in('material_id', uniqueIds)
   }
 
+  const latestStarted = onQuery ? performance.now() : 0
   const { data: latestData, error: latestError } = await latestQuery.limit(
     uniqueIds.length > 0 ? uniqueIds.length : 50000,
   )
+  onQuery?.({ query: 'material_latest_prices', duration_ms: Math.round(performance.now() - latestStarted), row_count: Array.isArray(latestData) ? latestData.length : null, error_code: latestError?.code ?? null })
 
   if (!latestError) {
     return buildLatestPriceMapFromView(latestData ?? [])
@@ -190,7 +193,9 @@ export async function fetchLatestPriceMap(
     rawQuery = rawQuery.in('material_id', uniqueIds)
   }
 
+  const rawStarted = onQuery ? performance.now() : 0
   const { data, error } = await rawQuery.limit(50000)
+  onQuery?.({ query: 'mat_price_base_fallback', duration_ms: Math.round(performance.now() - rawStarted), row_count: Array.isArray(data) ? data.length : null, error_code: error?.code ?? null })
   if (error) throw new Error(error.message)
 
   return buildLatestPriceMap(data ?? [])
