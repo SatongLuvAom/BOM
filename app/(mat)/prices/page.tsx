@@ -145,11 +145,11 @@ export default async function PricesPage({ searchParams }: PageProps) {
         }
       />
 
-      <div className="mx-6 mt-4 rounded-t-2xl border border-b-0 border-stone-200 bg-[var(--app-surface)] px-5 py-3">
+      <div className="mx-5 mt-6 rounded-t-3xl border border-b-0 border-slate-200 bg-white px-5 py-5 sm:mx-8">
         <SearchInput placeholder="Search material or supplier..." />
       </div>
 
-      <div className="mx-6 flex-1 overflow-auto border-x border-stone-200 bg-[var(--app-surface)]">
+      <div className="mx-5 mb-6 min-h-48 flex-1 overflow-auto rounded-b-3xl border border-t-0 border-slate-200 bg-white sm:mx-8">
         <PriceList
           prices={prices as any}
           materials={materials as any}

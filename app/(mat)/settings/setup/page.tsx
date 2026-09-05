@@ -42,10 +42,10 @@ function statusLabel(status: StepStatus) {
 
 function StepCard({ step, index }: { step: SetupStep; index: number }) {
   return (
-    <article className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <article className="app-surface p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 gap-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 text-sm font-bold text-slate-700">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
             {index + 1}
           </div>
           <div className="min-w-0">
@@ -65,7 +65,7 @@ function StepCard({ step, index }: { step: SetupStep; index: number }) {
       {step.href && (
         <Link
           href={step.href}
-          className="mt-4 inline-flex rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          className="btn-secondary mt-4"
         >
           Open
         </Link>
@@ -147,7 +147,7 @@ export default function SetupChecklistPage() {
     <div className="flex h-full flex-col">
       <Header title="Setup Checklist" subtitle="ลำดับงานสำหรับติดตั้ง local, Supabase, LINE และ deploy" />
 
-      <div className="flex-1 overflow-auto px-6 py-6">
+      <div className="app-page-content flex-1 overflow-auto">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Done</p>

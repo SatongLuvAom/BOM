@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
+import styles from './receipts.module.css'
 import { SupplierForm } from '@/components/mat/SupplierForm'
 import {
   formatReceiptMoney,
@@ -110,6 +111,7 @@ export function ReceiptReviewClient({
   const [warning, setWarning] = useState<string | null>(initialWarning)
   const [error, setError] = useState<string | null>(null)
   const [duplicateReceipt, setDuplicateReceipt] = useState<ReceiptDuplicateNotice | null>(null)
+  const [showPreview, setShowPreview] = useState(true)
 
   const isPosted = receipt.status === 'posted'
   const hasReceiptFile = Boolean(receipt.file_name || receipt.file_url || receipt.file_storage_path)
@@ -633,9 +635,9 @@ export function ReceiptReviewClient({
   }
 
   return (
-    <div className="space-y-5">
+    <div className={`${styles.workflow} space-y-5`}>
       {(message || warning || error || duplicateReceipt) && (
-        <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
+        <div role={error ? 'alert' : 'status'} className={`rounded-xl border px-4 py-3 text-sm font-semibold ${
           error
             ? 'border-red-200 bg-red-50 text-red-700'
             : warning
@@ -738,11 +740,14 @@ export function ReceiptReviewClient({
             </Field>
           </div>
 
-          <div className="mt-4">
+          <details className={`${styles.disclosure} mt-4`}>
+            <summary>หมายเหตุเพิ่มเติม{header.notes ? ' · มีข้อมูล' : ''}</summary>
+            <div className="pt-3">
             <Field label="Notes">
-              <textarea disabled={isPosted} rows={3} value={header.notes} onChange={(e) => setHeaderField('notes', e.target.value)} className={inputClass} />
+              <textarea aria-label="Notes" disabled={isPosted} rows={3} value={header.notes} onChange={(e) => setHeaderField('notes', e.target.value)} className={inputClass} />
             </Field>
-          </div>
+            </div>
+          </details>
 
           <div className="mt-5 flex justify-end">
             <button disabled={supplierSelectionLocked} type="button" onClick={saveHeader} className="btn-secondary">
@@ -759,7 +764,7 @@ export function ReceiptReviewClient({
                 <p className="mt-1 text-xs text-slate-500">รองรับ JPG, PNG, PDF ขนาดไม่เกิน 10 MB</p>
               </div>
               {!isPosted && (
-                <label className={`inline-flex cursor-pointer items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 ${uploadingFile ? 'pointer-events-none opacity-50' : ''}`}>
+                <label className={`inline-flex cursor-pointer items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-blue-600 ${uploadingFile ? 'pointer-events-none opacity-50' : ''}`}>
                   {uploadingFile ? 'กำลังอัปโหลด...' : 'แนบไฟล์'}
                   <input
                     type="file"
@@ -791,7 +796,7 @@ export function ReceiptReviewClient({
                 type="button"
                 onClick={readReceiptWithAi}
                 disabled={isPosted || readingAi || !hasReceiptFile}
-                className="rounded-xl bg-blue-950 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-45"
+                className="btn-primary"
               >
                 {readingAi ? 'กำลังอ่านสลิปด้วย AI...' : 'อ่านสลิปด้วย AI อีกครั้ง'}
               </button>
@@ -844,14 +849,22 @@ export function ReceiptReviewClient({
         </div>
       </section>
 
-      <section className="grid items-start gap-5 xl:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
-        <ReceiptFilePreview receipt={receipt} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">ตรวจชื่อ จำนวน และราคา เทียบกับเอกสารต้นฉบับ</p>
+        <button type="button" className="btn-secondary" aria-expanded={showPreview} aria-controls="receipt-original-preview" onClick={() => setShowPreview((current) => !current)}>
+          {showPreview ? 'ซ่อนเอกสารต้นฉบับ' : 'แสดงเอกสารต้นฉบับ'}
+        </button>
+      </div>
+      <section className={`${styles.reviewLayout} ${showPreview ? styles.withPreview : ''}`}>
+        <div id="receipt-original-preview" hidden={!showPreview} className={styles.previewColumn}>
+          <ReceiptFilePreview receipt={receipt} />
+        </div>
 
-        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className={`${styles.itemsPanel} min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm`}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold text-blue-950">รายการจากสลิป</h2>
-            <p className="text-sm text-slate-500">{!isPosted && !supplierConfirmed ? 'กรุณายืนยันร้านค้าและบันทึก Draft ก่อนจับคู่วัสดุ' : 'เพิ่มรายการเอง เลือกวัสดุ แล้วกำหนด action ต่อรายการ'}</p>
+            <h2 className="text-lg font-bold text-blue-950">รายการจากสลิป <span className="text-sm font-medium text-slate-500">({items.length})</span></h2>
+            <p className="text-sm text-slate-500">เพิ่มรายการเอง เลือกวัสดุ แล้วกำหนด action ต่อรายการ</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {!isPosted && (
@@ -897,10 +910,24 @@ export function ReceiptReviewClient({
 
         <ReceiptCalculationPanel result={receiptCalculation} />
 
+        {!isPosted && !supplierConfirmed && (
+          <div role="status" className="border-b border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+            <p className="font-semibold">กรุณายืนยันร้านค้าและบันทึก Draft ก่อนจับคู่วัสดุ</p>
+            <p className="mt-1 text-xs leading-5">เลือกร้านในข้อมูลหัวสลิป แล้วกดยืนยันร้านและบันทึก Draft จากนั้นค้นหาวัสดุของร้าน หากไม่พบจึงเลือกจากคลังกลางหรือสร้างวัสดุใหม่</p>
+          </div>
+        )}
+
         {!isPosted && (
-          <div className="grid grid-cols-1 gap-3 border-b border-slate-100 p-4 md:grid-cols-[1.4fr_90px_110px_120px_120px_auto]">
+          <details className={`${styles.disclosure} border-b border-slate-100 p-5`} open={items.length === 0}>
+            <summary>เพิ่มรายการจากสลิปด้วยตัวเอง</summary>
+            <div className={`${styles.itemFields} pt-4`}>
+            <Field label="รายการจากสลิป">
             <input placeholder="รายการจากสลิป" value={newItem.item_name_raw} onChange={(e) => setNewItem((current) => ({ ...current, item_name_raw: e.target.value }))} className={inputClass} />
+            </Field>
+            <Field label="จำนวน">
             <input placeholder="จำนวน" type="number" step="0.0001" value={newItem.qty} onChange={(e) => setNewItem((current) => ({ ...current, qty: e.target.value }))} className={inputClass} />
+            </Field>
+            <Field label="หน่วย">
             <select value={newItem.uom_id} onChange={(e) => {
               const selected = uoms.find((uom) => uom.id === e.target.value)
               setNewItem((current) => ({ ...current, uom_id: e.target.value, uom_raw: selected?.uom_code ?? current.uom_raw }))
@@ -908,38 +935,29 @@ export function ReceiptReviewClient({
               <option value="">หน่วย</option>
               {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
             </select>
+            </Field>
+            <Field label="ราคา/หน่วย">
             <input placeholder="ราคา/หน่วย" type="number" step="0.0001" value={newItem.unit_price} onChange={(e) => setNewItem((current) => ({ ...current, unit_price: e.target.value }))} className={inputClass} />
+            </Field>
+            <Field label="รวม">
             <input placeholder="รวม" type="number" step="0.01" value={newItem.line_total} onChange={(e) => setNewItem((current) => ({ ...current, line_total: e.target.value }))} className={inputClass} />
+            </Field>
+            </div>
+            <div className="mt-3 flex justify-end">
             <button type="button" onClick={addItem} disabled={addingItem || !newItem.item_name_raw.trim()} className="btn-secondary whitespace-nowrap">
               {addingItem ? 'กำลังเพิ่ม...' : '+ เพิ่มรายการ'}
             </button>
-          </div>
+            </div>
+          </details>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="data-table min-w-[1320px]">
-            <thead>
-              <tr>
-                <th>รายการจากสลิป</th>
-                <th>จำนวน</th>
-                <th>หน่วย</th>
-                <th className="text-right">ราคา/หน่วย</th>
-                <th className="text-right">รวม</th>
-                <th>วัสดุที่เลือก</th>
-                <th>Action</th>
-                <th>สถานะตรวจสอบ</th>
-                <th className="text-right">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className={styles.itemList}>
               {items.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-6 py-14 text-center text-sm text-slate-400">
+                <p className="px-6 py-14 text-center text-sm text-slate-500">
                     ยังไม่พบรายการ
-                  </td>
-                </tr>
+                </p>
               )}
-              {items.map((item) => {
+              {items.map((item, index) => {
                 const rowLocked = isPosted || item.review_status === 'posted'
                 const rowBusy = savingItemIds.has(item.id)
                 const readinessDetail = getReceiptItemReadiness(item, effectiveSupplierId)
@@ -948,16 +966,21 @@ export function ReceiptReviewClient({
                 const actionValue = getReceiptItemAction(item)
                 const calculationIssue = itemCalculationIssues.get(item.id)
                 return (
-                <tr key={item.id} className={calculationIssue ? 'bg-amber-50/40' : undefined}>
-                  <td className="min-w-[260px]">
+                <article key={item.id} aria-label={`รายการ ${item.line_no ?? index + 1}: ${item.item_name_raw || 'ยังไม่มีชื่อ'}`} className={`${styles.itemRow} ${calculationIssue ? styles.itemIssue : ''}`} aria-busy={rowBusy}>
+                  <div className={styles.itemHeading}>
+                    <span>รายการ {item.line_no ?? index + 1}</span>
+                    {rowLocked && <span>ล็อกการแก้ไข</span>}
+                  </div>
+                  <div className={styles.itemFields}>
+                  <Field label="รายการจากสลิป">
                     <input disabled={rowLocked || rowBusy} value={item.item_name_raw ?? ''} onChange={(e) => setItemField(item.id, 'item_name_raw', e.target.value)} className={inputClass} />
-                  </td>
-                  <td>
+                  </Field>
+                  <Field label="จำนวน">
                     <input disabled={rowLocked || rowBusy} type="number" step="0.0001" value={item.qty ?? ''} onChange={(e) => setItemField(item.id, 'qty', e.target.value === '' ? null : Number(e.target.value))} className={inputClass} />
-                  </td>
-                  <td>
+                  </Field>
+                  <Field label="หน่วย">
                     <div className="space-y-1">
-                      <select disabled={rowLocked || rowBusy} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
+                      <select aria-label="หน่วย" disabled={rowLocked || rowBusy} value={item.uom_id ?? ''} onChange={(e) => setItemUom(item.id, e.target.value)} className={inputClass}>
                         <option value="">-</option>
                         {uoms.map((uom) => <option key={uom.id} value={uom.id}>{uom.uom_code}</option>)}
                       </select>
@@ -965,19 +988,22 @@ export function ReceiptReviewClient({
                         {getUomHelperText(item)}
                       </p>
                     </div>
-                  </td>
-                  <td>
+                  </Field>
+                  <Field label="ราคา/หน่วย">
                     <input disabled={rowLocked || rowBusy} type="number" step="0.0001" value={item.unit_price ?? ''} onChange={(e) => setItemField(item.id, 'unit_price', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
-                  </td>
-                  <td>
-                    <input disabled={rowLocked || rowBusy} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
+                  </Field>
+                  <Field label="รวม">
+                    <input aria-label="รวม" disabled={rowLocked || rowBusy} type="number" step="0.01" value={item.line_total ?? ''} onChange={(e) => setItemField(item.id, 'line_total', e.target.value === '' ? null : Number(e.target.value))} className={`${inputClass} text-right`} />
                     {calculationIssue && (
-                      <p className="mt-1 min-w-48 text-[11px] font-semibold leading-4 text-amber-700">
+                      <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
                         {calculationIssue.message}
                       </p>
                     )}
-                  </td>
-                  <td className="min-w-[280px]">
+                  </Field>
+                  </div>
+                  <div className={styles.itemSecondary}>
+                  <div className={styles.materialCell}>
+                    <p className={styles.fieldCaption}>วัสดุที่เลือก</p>
                     <MaterialPicker
                       key={`${item.id}:${receipt.supplier_id}`}
                       receiptId={receipt.id}
@@ -1006,9 +1032,9 @@ export function ReceiptReviewClient({
                     <p className={`mt-2 text-[11px] font-bold ${materialFlow.className}`}>
                       {materialFlow.label}
                     </p>
-                  </td>
-                  <td>
-                    <select disabled={rowLocked || rowBusy || pendingMaterialDraft} value={actionValue} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
+                  </div>
+                  <Field label="Action">
+                    <select aria-label="Action" disabled={rowLocked || rowBusy || pendingMaterialDraft} value={actionValue} onChange={(e) => setItemField(item.id, 'action', e.target.value as ReceiptItemAction)} className={inputClass}>
                       {actionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                     {pendingMaterialDraft && (
@@ -1016,9 +1042,10 @@ export function ReceiptReviewClient({
                         ต้องอนุมัติ Draft วัสดุก่อนอัปเดตราคา
                       </p>
                     )}
-                  </td>
-                  <td>
-                    <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${readinessDetail.className}`}>
+                  </Field>
+                  <div>
+                    <p className={styles.fieldCaption}>สถานะตรวจสอบ</p>
+                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${readinessDetail.className}`}>
                       {readinessDetail.label}
                     </span>
                     {readinessDetail.helper && (
@@ -1027,12 +1054,12 @@ export function ReceiptReviewClient({
                     {readinessDetail.nextAction && (
                       <p className="mt-1 text-[11px] font-bold text-blue-700">ถัดไป: {readinessDetail.nextAction}</p>
                     )}
-                  </td>
-                  <td>
-                    <div className="flex justify-end gap-2">
+                  </div>
+                  </div>
+                    <div className={styles.itemActions}>
                       {!rowLocked && (
                         <>
-                          <button type="button" onClick={() => saveItem(item)} disabled={rowBusy} className="rounded-lg px-3 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50 disabled:opacity-50">
+                          <button type="button" onClick={() => saveItem(item)} disabled={rowBusy} className="btn-secondary">
                             {rowBusy ? 'กำลังบันทึก...' : 'บันทึก'}
                           </button>
                           <button type="button" onClick={() => deleteItem(item)} disabled={rowBusy} className="rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50">
@@ -1041,12 +1068,9 @@ export function ReceiptReviewClient({
                         </>
                       )}
                     </div>
-                  </td>
-                </tr>
+                </article>
                 )
               })}
-            </tbody>
-          </table>
         </div>
         </section>
       </section>
@@ -1072,6 +1096,7 @@ export function ReceiptReviewClient({
           uoms={uoms}
           saving={approvingCandidate}
           savingText={candidateApproveStage}
+          error={error}
           needsConfirm={candidateNeedsConfirm}
           onChange={(nextDraft) => {
             setCandidateDraft(nextDraft)
@@ -1103,7 +1128,7 @@ function ReceiptFilePreview({ receipt }: { receipt: PurchaseReceipt }) {
   const isPdf = receipt.file_mime_type === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')
 
   return (
-    <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:sticky xl:top-28">
+    <aside className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="min-w-0">
           <h2 className="font-bold text-blue-950">เอกสารต้นฉบับ</h2>
@@ -1184,6 +1209,7 @@ function CandidateReviewModal({
   uoms,
   saving,
   savingText,
+  error,
   needsConfirm,
   onChange,
   onSave,
@@ -1196,6 +1222,7 @@ function CandidateReviewModal({
   uoms: ReceiptUom[]
   saving: boolean
   savingText?: string | null
+  error: string | null
   needsConfirm: boolean
   onChange: (candidate: ReceiptMaterialCandidate) => void
   onSave: () => void
@@ -1204,17 +1231,35 @@ function CandidateReviewModal({
 }) {
   const availableTypes = materialTypes.filter((type) => !candidate.proposed_category_id || type.category_id === candidate.proposed_category_id)
   const duplicateMatches = candidate.duplicate_warning?.matches ?? []
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const errorPanel = useRef<HTMLParagraphElement>(null)
+
+  useEffect(() => {
+    if (error) errorPanel.current?.focus()
+  }, [error])
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    const trigger = document.activeElement
+    dialog?.showModal()
+    return () => {
+      dialog?.close()
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus()
+    }
+  }, [])
 
   function set<K extends keyof ReceiptMaterialCandidate>(key: K, value: ReceiptMaterialCandidate[K]) {
     onChange({ ...candidate, [key]: value })
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/40 p-4">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-xl">
+    <dialog ref={dialogRef} aria-labelledby="receipt-candidate-title" className={styles.candidateDialog} onCancel={(event) => {
+      event.preventDefault()
+      if (!saving) onClose()
+    }}>
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <h3 className="text-xl font-bold text-blue-950">ตรวจ Draft วัสดุ</h3>
+            <h3 id="receipt-candidate-title" className="text-xl font-bold text-blue-950">ตรวจ Draft วัสดุ</h3>
             <p className="mt-1 text-sm text-slate-500">ระบบจะสร้างรหัสวัสดุให้อัตโนมัติหลังอนุมัติ และยังไม่บันทึกราคาในขั้นตอนนี้</p>
           </div>
           <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
@@ -1227,6 +1272,8 @@ function CandidateReviewModal({
             {savingText}
           </div>
         )}
+
+        {error && <p ref={errorPanel} tabIndex={-1} role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
 
         {duplicateMatches.length > 0 && (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -1316,8 +1363,7 @@ function CandidateReviewModal({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </dialog>
   )
 }
 
@@ -1401,7 +1447,7 @@ function MaterialPicker({
                   </span>
                 )}
               </div>
-              <p className="truncate text-xs text-emerald-700">{selected.mat_name_th}</p>
+              <p className="break-words text-sm text-emerald-700">{selected.mat_name_th}</p>
               {item.review_status !== 'posted' && item.material_supplier_id !== supplierId && (
                 <p className="mt-1 text-[11px] font-semibold text-amber-800">กรุณากดเปลี่ยนและเลือกวัสดุเพื่อยืนยันร้านก่อนบันทึกราคา</p>
               )}
@@ -1423,7 +1469,7 @@ function MaterialPicker({
               <span className="text-[11px] font-semibold text-blue-700">{materialCandidate.proposed_code_spec_key}</span>
             )}
           </div>
-          <p className="truncate text-xs font-bold text-blue-950">{materialCandidate.proposed_mat_name_th || item.item_name_raw}</p>
+          <p className="break-words text-sm font-semibold text-blue-950">{materialCandidate.proposed_mat_name_th || item.item_name_raw}</p>
           {materialCandidate.duplicate_warning?.matches?.length ? (
             <p className="mt-1 text-[11px] font-semibold text-amber-700">พบวัสดุคล้ายกัน กรุณาตรวจสอบก่อนสร้างใหม่</p>
           ) : null}
@@ -1455,7 +1501,7 @@ function MaterialPicker({
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-xs font-bold text-amber-900">{candidate.material_code || candidate.material_id}</p>
-                    <p className="truncate text-xs text-amber-800">{candidate.mat_name_th}</p>
+                    <p className="break-words text-sm text-amber-800">{candidate.mat_name_th}</p>
                     <p className="text-[11px] text-amber-700">
                       {candidate.spec || candidate.code_spec_key || '-'}
                       {candidate.match_confidence != null ? ` / ${candidate.match_confidence}%` : ''}
@@ -1474,8 +1520,8 @@ function MaterialPicker({
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          <p className="text-xs font-bold text-slate-500">{supplierId ? 'ไม่พบวัสดุที่ผูกกับร้านนี้' : 'กรุณายืนยันร้านค้าก่อนเลือกวัสดุ'}</p>
-          <p className="mt-1 text-[11px] text-slate-400">ค้นหาในร้านก่อน หากไม่มีจึงเลือกจากคลังกลางหรือสร้างวัสดุใหม่</p>
+          <p className="text-xs font-bold text-slate-500">{supplierId ? 'ไม่พบวัสดุที่ผูกกับร้านนี้' : 'รอยืนยันร้านค้า'}</p>
+          {supplierId && <p className="mt-1 text-[11px] text-slate-500">ค้นหาในร้านก่อน หากไม่มีจึงเลือกจากคลังกลางหรือสร้างวัสดุใหม่</p>}
           {!disabled && (
             <button type="button" onClick={onCreateCandidate} className="mt-2 rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-bold text-blue-800 hover:bg-blue-50">
               สร้าง Draft วัสดุ
@@ -1488,7 +1534,7 @@ function MaterialPicker({
           <div className="space-y-2">
             <p className="text-[11px] font-bold text-slate-600">{scope === 'supplier' ? 'ค้นหาเฉพาะวัสดุของร้านนี้' : 'คลังกลาง — ต้องยืนยันผูกกับร้านก่อนเลือก'}</p>
             <div className="flex gap-2">
-            <input value={query} onChange={(e) => { searchVersion.current += 1; setQuery(e.target.value); setCandidates([]); setPendingLink(null); setSearched(false); setLoading(false) }} className={inputClass} placeholder={scope === 'supplier' ? 'ชื่อหรือรหัสสินค้าของร้านนี้' : 'ค้นหาวัสดุในคลังกลาง'} />
+            <input aria-label={scope === 'supplier' ? 'ค้นหาวัสดุของร้านนี้' : 'ค้นหาวัสดุในคลังกลาง'} value={query} onChange={(e) => { searchVersion.current += 1; setQuery(e.target.value); setCandidates([]); setPendingLink(null); setSearched(false); setLoading(false) }} className={inputClass} placeholder={scope === 'supplier' ? 'ชื่อหรือรหัสสินค้าของร้านนี้' : 'ค้นหาวัสดุในคลังกลาง'} />
             <button type="button" onClick={() => search()} disabled={loading || query.trim().length < 2} className="rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
               {loading ? '...' : 'ค้นหา'}
             </button>
@@ -1548,8 +1594,8 @@ function MaterialPicker({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-bold text-slate-700">{label}</span>
+    <label className={styles.field}>
+      <span className={styles.fieldCaption}>{label}</span>
       {children}
     </label>
   )
@@ -2000,4 +2046,4 @@ function getReceiptItemAction(item: PurchaseReceiptItem): ReceiptItemAction {
   return item.action ?? 'needs_review'
 }
 
-const inputClass = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 shadow-sm disabled:bg-slate-50 disabled:text-slate-400 focus:border-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-950/10'
+const inputClass = styles.input

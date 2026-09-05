@@ -6,23 +6,24 @@
 
 @layer base {
   :root {
-    --app-bg: #f5f7fb;
-    --app-shell: #f6f8fc;
+    --app-bg: #f5f5f7;
+    --app-shell: #f5f5f7;
     --app-sidebar: #ffffff;
     --app-surface: #ffffff;
-    --app-surface-soft: #f8fafc;
-    --app-text: #0f172a;
-    --app-muted: #64748b;
-    --app-border: #e2e8f0;
-    --app-border-strong: #cbd5e1;
-    --app-accent: #0b1f5f;
+    --app-surface-soft: #f5f5f7;
+    --app-text: #1d1d1f;
+    --app-muted: #626268;
+    --app-border: #e5e5e8;
+    --app-border-strong: #a1a1a8;
+    --app-accent: #0071e3;
     --app-cyan: #0e7490;
     --app-emerald: #059669;
     --app-amber: #d97706;
     --app-danger: #dc2626;
     --app-success: #16a34a;
-    --app-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
-    --app-card-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    --app-shadow: 0 24px 70px rgba(29, 29, 31, 0.10);
+    --app-card-shadow: 0 4px 20px rgba(29, 29, 31, 0.04);
+    --app-ease: cubic-bezier(.22, 1, .36, 1);
   }
 
   * {
@@ -30,7 +31,7 @@
   }
 
   html {
-    font-family: 'Sarabun', ui-sans-serif, system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Sarabun', 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -39,6 +40,14 @@
     background: var(--app-bg);
     color: var(--app-text);
   }
+
+  :where(button, a, input, select, textarea) {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :where(input, select, textarea) { accent-color: var(--app-accent); }
+  :where(button, a) { touch-action: manipulation; }
+  :where(input, select, textarea):disabled { cursor: not-allowed; }
 
   /* Elegant Thin scrollbar */
   ::-webkit-scrollbar {
@@ -70,30 +79,30 @@
 @layer components {
   /* Primary action button */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-blue-950 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-blue-950/15
-           transition-all duration-150 hover:bg-blue-900 hover:shadow-md active:scale-[0.99] focus-visible:outline-none
-           focus-visible:ring-2 focus-visible:ring-blue-950 focus-visible:ring-offset-2
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white
+           transition-[background-color,box-shadow,transform] duration-200 hover:bg-blue-700 hover:shadow-md active:scale-[0.98] focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2
            disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
   }
 
   /* Secondary / outline button */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold
-           text-slate-700 shadow-sm transition-all duration-150 hover:border-slate-400 hover:bg-stone-50 hover:text-slate-950
-           active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold
+           text-slate-700 transition-[background-color,border-color,transform] duration-200 hover:border-slate-400 hover:bg-slate-50 hover:text-slate-950
+           active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Subtle card container */
   .card {
-    @apply rounded-2xl border border-slate-200 bg-[var(--app-surface)] shadow-[0_10px_30px_rgba(15,23,42,0.06)];
+    @apply rounded-3xl border border-slate-200 bg-[var(--app-surface)] shadow-[var(--app-card-shadow)];
   }
 
   .soft-card {
-    @apply rounded-2xl border border-slate-200 bg-white shadow-[0_10px_28px_rgba(15,23,42,0.05)];
+    @apply rounded-3xl border border-slate-200 bg-white shadow-[var(--app-card-shadow)];
   }
 
   .soft-pill {
-    @apply rounded-xl border border-stone-300 bg-white shadow-sm;
+    @apply rounded-full border border-slate-200 bg-white;
   }
 
   .ops-toolbar {
@@ -101,8 +110,8 @@
   }
 
   .ops-select {
-    @apply rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-8 text-sm font-semibold text-slate-700 shadow-sm transition-colors
-           hover:border-slate-300 focus:border-blue-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-950/10;
+    @apply min-h-11 rounded-xl border border-slate-300 bg-white py-2.5 pl-3 pr-8 text-sm font-medium text-slate-700 transition-colors
+           hover:border-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/15;
   }
 
   .ops-icon-btn {
@@ -119,7 +128,7 @@
   }
 
   .data-table th {
-    @apply whitespace-nowrap px-3 py-3 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500;
+    @apply whitespace-nowrap px-4 py-3.5 text-left text-xs font-semibold tracking-normal text-slate-500;
   }
 
   .data-table tbody {
@@ -127,12 +136,75 @@
   }
 
   .data-table tbody tr {
-    @apply transition-colors hover:bg-blue-50/45;
+    @apply transition-colors duration-200 hover:bg-blue-50/60;
   }
 
   .data-table td {
-    @apply px-3 py-3.5 align-middle;
+    @apply px-4 py-4 align-middle;
   }
+
+  .app-header {
+    @apply sticky top-0 z-20 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-slate-200 px-5 py-6 sm:px-8;
+    background: rgba(255, 255, 255, .86);
+    backdrop-filter: saturate(150%) blur(18px);
+  }
+  .app-heading {
+    color: var(--app-text);
+    font-size: clamp(1.6rem, 2.2vw, 2.25rem);
+    font-weight: 600;
+    line-height: 1.3;
+    letter-spacing: -.035em;
+    text-wrap: balance;
+  }
+  .app-page-content { @apply min-w-0 p-5 sm:p-8; }
+  .app-eyebrow { @apply text-xs font-semibold tracking-wide text-slate-500; }
+  .app-surface { @apply rounded-3xl border border-slate-200 bg-white shadow-[var(--app-card-shadow)]; }
+  .app-lift { transition: transform 320ms var(--app-ease), box-shadow 320ms var(--app-ease); }
+  .app-enter { animation: app-enter 480ms var(--app-ease) both; }
+  .app-shell {
+    display: flex;
+    height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+    background: var(--app-shell);
+  }
+  .app-main { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; }
+  .app-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: 244px;
+    height: 100%;
+    flex-shrink: 0;
+    border-right: 1px solid var(--app-border);
+    background: rgba(255,255,255,.92);
+  }
+  .app-brand { @apply flex min-h-24 items-center gap-3 px-6 py-5; }
+  .app-brand-mark { @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white; }
+  .app-nav-link {
+    @apply relative mx-3 mb-1 flex min-h-11 items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-600;
+    transition: background-color 200ms, color 200ms, transform 250ms var(--app-ease);
+  }
+  .app-nav-link:hover { @apply bg-slate-100 text-slate-950; transform: translateX(2px); }
+  .app-nav-link[aria-current='page'] { @apply bg-blue-50 font-semibold text-blue-700; }
+  .app-nav-link[aria-current='page']::before {
+    content: ''; position: absolute; left: -12px; width: 3px; height: 20px;
+    background: var(--app-accent); border-radius: 0 4px 4px 0;
+  }
+  .app-nav-icon { @apply shrink-0 text-slate-400; }
+  [aria-current='page'] .app-nav-icon { @apply text-blue-600; }
+  .app-sidebar-mobile { display: none; }
+  .app-nav-dialog {
+    inset: 0 auto 0 0; margin: 0; padding: 0; border: 0;
+    width: min(310px, 90vw); height: 100dvh; max-height: 100dvh;
+    max-width: 90vw; background: white; color: var(--app-text);
+  }
+  .app-nav-dialog .app-sidebar { width: 100%; border: 0; }
+  .app-nav-dialog[open] { animation: app-drawer-in 300ms var(--app-ease); }
+  .app-nav-dialog::backdrop { background: rgb(29 29 31 / .35); backdrop-filter: blur(5px); }
+  .app-skip-link { position: fixed; left: 16px; top: -100px; z-index: 100; padding: 12px 20px; border-radius: 12px; background: white; color: var(--app-accent); }
+  .app-skip-link:focus { top: 12px; }
+  .app-help { @apply mx-5 my-4 rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 sm:mx-8; }
+  .app-help-copy { @apply text-sm leading-6 text-slate-600; }
 }
 
 @layer utilities {
@@ -144,17 +216,57 @@
     @apply border-b border-stone-200 bg-white/90 backdrop-blur;
   }
 
-  .assistant-float {
-    animation: assistant-breathe 3.8s ease-in-out infinite;
-  }
+  .assistant-float { transition: transform 200ms var(--app-ease); }
 }
 
-@keyframes assistant-breathe {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
+/* All existing forms get the same focus treatment without changing their sizing or validation colors. */
+.app-shell :where(input:not([type='checkbox']):not([type='radio']):not([type='file']), select, textarea) {
+  transition: border-color 180ms, box-shadow 180ms, background-color 180ms;
+}
+.app-shell :where(input, select, textarea):focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+.app-shell :where(input, select, textarea)::placeholder { color: var(--app-muted); opacity: .8; }
+.app-shell :where(td, input[type='number'], output) { font-variant-numeric: tabular-nums; }
+.app-form :where(input:not([type='checkbox']):not([type='radio']):not([type='file']), select, textarea) {
+  min-height: 44px;
+  border-radius: 12px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  box-shadow: none;
+}
+.app-form :where(label) { font-weight: 500; }
+.app-form :where(input, select, textarea):focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.app-shell :where(dialog[open]) { animation: app-enter 220ms var(--app-ease); }
+@keyframes app-enter {
+  from { opacity: .01; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes app-drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .app-lift:hover { transform: translateY(-3px); box-shadow: var(--app-shadow); }
+}
+@media (max-width: 1023px) {
+  .app-shell { flex-direction: column; }
+  .app-sidebar-desktop { display: none; }
+  .app-sidebar-mobile { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; height: 60px; padding: 0 16px; border-bottom: 1px solid var(--app-border); background: rgba(255,255,255,.9); backdrop-filter: blur(16px); }
+  .app-main { width: 100%; }
+}
+@media (max-width: 639px) {
+  .app-shell :where(input:not([type='checkbox']):not([type='radio']), select, textarea) { font-size: 16px; }
+  .app-shell :where(.btn-primary, .btn-secondary) { padding-inline: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media print {
+  .app-shell { display: block; height: auto; overflow: visible; background: white; }
+  .app-main { overflow: visible; }
+  .app-header { position: static; background: white; backdrop-filter: none; }
+  .app-sidebar-desktop, .app-sidebar-mobile, .app-nav-dialog, .app-skip-link { display: none; }
+  .app-enter { animation: none; }
 }

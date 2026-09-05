@@ -26,7 +26,7 @@ export default async function BomLibraryPage() {
         actions={
           <Link
             href="/bom/create"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 transition-colors"
+            className="btn-primary"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M12 5v14M5 12h14" />
@@ -35,7 +35,7 @@ export default async function BomLibraryPage() {
           </Link>
         }
       />
-      <div className="mx-auto max-w-5xl px-4 py-6">
+      <div className="app-page-content mx-auto max-w-6xl">
         <BomList boms={boms as any} />
       </div>
     </div>

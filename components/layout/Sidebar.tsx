@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { useI18n } from '@/lib/i18n/client'
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher'
@@ -51,7 +51,8 @@ function NavIcon({ name }: { name: IconName }) {
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
-    strokeWidth: 2,
+    strokeWidth: 1.65,
+    'aria-hidden': true as const,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
   }
@@ -133,7 +134,7 @@ function NavIcon({ name }: { name: IconName }) {
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <p className="mb-2 mt-5 px-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 first:mt-2">
+    <p className="mb-2 mt-6 px-6 text-[11px] font-medium tracking-wide text-slate-500 first:mt-2">
       {label}
     </p>
   )
@@ -153,14 +154,10 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   return (
     <Link
       href={item.href}
-      className={cn(
-        'group relative mx-3 mb-1 flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-150',
-        active
-          ? 'bg-blue-950 text-white shadow-sm shadow-blue-950/20'
-          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-950',
-      )}
+      aria-current={active ? 'page' : undefined}
+      className="app-nav-link group"
     >
-      <span className={cn('shrink-0 transition-colors duration-150', active ? 'text-white' : 'text-slate-400 group-hover:text-blue-900')}>
+      <span className="app-nav-icon">
         <NavIcon name={item.icon} />
       </span>
       {t(item.labelKey)}
@@ -171,7 +168,17 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    dialogRef.current?.close()
+    const desktop = window.matchMedia('(min-width: 1024px)')
+    const closeOnDesktop = () => { if (desktop.matches) dialogRef.current?.close() }
+    desktop.addEventListener('change', closeOnDesktop)
+    return () => desktop.removeEventListener('change', closeOnDesktop)
+  }, [pathname])
 
   async function handleLogout() {
     const supabase = createClient()
@@ -180,19 +187,20 @@ export function Sidebar() {
     router.refresh()
   }
 
-  return (
-    <aside className="z-30 flex h-full w-64 flex-col border-r border-slate-200 bg-[var(--app-sidebar)] md:w-72">
-      <div className="flex h-[72px] items-center gap-3 border-b border-slate-200 px-5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-950 text-white shadow-sm">
+  const content = (mobile = false) => (
+    <aside className="app-sidebar" data-i18n-managed>
+      <div className="app-brand">
+        <div className="app-brand-mark">
           <NavIcon name="box" />
         </div>
         <div className="flex min-w-0 flex-col">
-          <p className="truncate text-base font-bold tracking-tight text-blue-950">{t('app.name')}</p>
-          <p className="truncate text-xs font-medium text-slate-500">{t('app.subtitle')}</p>
+          <p className="truncate text-base font-semibold tracking-tight text-slate-950">{t('app.name')}</p>
+          <p className="mt-0.5 truncate text-[11px] text-slate-500">{t('app.subtitle')}</p>
         </div>
+        {mobile && <button type="button" onClick={() => dialogRef.current?.close()} aria-label={t('common.close')} className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">✕</button>}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-1 pb-4 scrollbar-none">
+      <nav aria-label={locale === 'th' ? 'เมนูหลัก' : 'Main navigation'} className="min-h-0 flex-1 overflow-y-auto pb-6" onClick={(event) => { if (mobile && (event.target as HTMLElement).closest('a')) dialogRef.current?.close() }}>
         <SectionLabel label={t('nav.overview')} />
         {overviewItems.map((item) => (
           <NavLink key={item.href} item={item} pathname={pathname} />
@@ -205,16 +213,16 @@ export function Sidebar() {
 
       </nav>
 
-      <div className="space-y-2 border-t border-slate-200 p-4">
+      <div className="space-y-3 border-t border-slate-200 p-4">
         <LanguageSwitcher compact />
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-blue-950">{t('app.versionPhase')}</p>
-          <p className="mt-0.5 text-[10px] text-slate-500">{t('app.versionStatus')}</p>
+        <div className="flex flex-wrap items-center justify-between gap-1 px-2 text-[10px] text-slate-500">
+          <p>{t('app.versionPhase')}</p>
+          <p>{t('app.versionStatus')}</p>
         </div>
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 transition-colors hover:bg-white hover:text-red-600"
+          className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -225,5 +233,20 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+  )
+
+  return (
+    <>
+      <div className="app-sidebar-desktop print:hidden">{content()}</div>
+      <div className="app-sidebar-mobile print:hidden" data-i18n-managed>
+        <Link href="/dashboard" className="flex items-center gap-2.5 text-sm font-semibold text-slate-950"><NavIcon name="box" />{t('app.name')}</Link>
+        <button type="button" aria-label={locale === 'th' ? 'เปิดเมนูหลัก' : 'Open navigation'} aria-controls="app-mobile-navigation" aria-expanded={menuOpen} onClick={() => { dialogRef.current?.showModal(); setMenuOpen(true) }} className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-700">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 8h16M4 16h16" /></svg>
+        </button>
+      </div>
+      <dialog id="app-mobile-navigation" ref={dialogRef} aria-label={locale === 'th' ? 'เมนูหลัก' : 'Main navigation'} className="app-nav-dialog" onClose={() => setMenuOpen(false)} onClick={(event) => { if (event.target === event.currentTarget) event.currentTarget.close() }}>
+        {content(true)}
+      </dialog>
+    </>
   )
 }

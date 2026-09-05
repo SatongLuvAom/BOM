@@ -31,16 +31,16 @@ export function Pagination({ total, page, limit }: PaginationProps) {
   if (totalPages <= 1) return null
 
   return (
-    <div className="flex items-center justify-between border-t border-stone-200 bg-[var(--app-surface)] px-5 py-3 pr-20">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-b-2xl border-t border-slate-200 bg-[var(--app-surface)] px-5 py-4" data-i18n-managed>
       <p className="text-xs text-slate-500 font-medium">
         {t('common.pagination.summary', { start, end, total: total.toLocaleString() })}
         {isPending && <span className="ml-2 font-semibold text-cyan-700">{t('common.pagination.loading')}</span>}
       </p>
-      <div className="flex items-center gap-1">
+      <nav aria-label={t('common.pagination.summary', { start, end, total: total.toLocaleString() })} className="flex max-w-full flex-wrap items-center gap-1">
         <button
           onClick={() => go(page - 1)}
           disabled={isPending || page <= 1}
-          className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600
+          className="min-h-11 rounded-full px-3 py-1.5 text-xs font-semibold text-slate-600
                      hover:bg-stone-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
         >
           {t('common.pagination.previous')}
@@ -53,9 +53,10 @@ export function Pagination({ total, page, limit }: PaginationProps) {
               key={p}
               onClick={() => go(p)}
               disabled={isPending || p === page}
-              className={`min-w-[32px] rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
+              aria-current={p === page ? 'page' : undefined}
+              className={`min-h-11 min-w-11 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors duration-200 ${
                 p === page
-                  ? 'bg-slate-950 text-white shadow-sm'
+                  ? 'bg-blue-600 text-white'
                   : 'text-slate-600 hover:bg-stone-100 hover:text-slate-900'
               }`}
             >
@@ -67,12 +68,12 @@ export function Pagination({ total, page, limit }: PaginationProps) {
         <button
           onClick={() => go(page + 1)}
           disabled={isPending || page >= totalPages}
-          className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600
+          className="min-h-11 rounded-full px-3 py-1.5 text-xs font-semibold text-slate-600
                      hover:bg-stone-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
         >
           {t('common.pagination.next')}
         </button>
-      </div>
+      </nav>
     </div>
   )
 }

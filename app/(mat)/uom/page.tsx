@@ -47,12 +47,12 @@ export default function UomPage() {
           </div>
         </div>
       )}
-      <UomList
+      <div className="app-page-content"><UomList
         uoms={uoms}
         open={modalOpen}
         onOpenChange={setModalOpen}
         onAdded={loadUoms}
-      />
+      /></div>
     </div>
   )
 }

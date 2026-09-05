@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useId } from 'react'
 import { useI18n } from '@/lib/i18n/client'
 
 interface ModalProps {
@@ -12,6 +12,7 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
   const { text, t } = useI18n()
+  const titleId = useId()
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -29,13 +30,13 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         className="absolute inset-0 bg-slate-950/35 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative z-10 max-h-[92vh] w-full max-w-lg overflow-hidden rounded-2xl border border-stone-200 bg-[var(--app-surface)] shadow-[0_24px_80px_rgba(15,23,42,0.24)]">
-        <div className="flex items-center justify-between border-b border-stone-200 px-5 py-3.5">
-          <h3 className="text-base font-bold text-slate-950">{text(title)}</h3>
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId} className="app-enter relative z-10 max-h-[92vh] w-full max-w-lg overflow-hidden rounded-3xl border border-slate-200 bg-[var(--app-surface)] shadow-[0_24px_80px_rgba(29,29,31,0.18)]">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h3 id={titleId} className="text-lg font-semibold tracking-tight text-slate-950">{text(title)}</h3>
           <button
             onClick={onClose}
             aria-label={t('common.close')}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-stone-100 hover:text-slate-700"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-700"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6 6 18M6 6l12 12" />

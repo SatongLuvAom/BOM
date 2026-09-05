@@ -42,7 +42,7 @@ export default async function CategoriesPage() {
           </Link>
         }
       />
-      <CategoryList categories={categories} />
+      <div className="app-page-content"><div className="app-surface overflow-x-auto"><CategoryList categories={categories} /></div></div>
     </div>
   )
 }

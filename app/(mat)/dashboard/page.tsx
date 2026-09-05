@@ -4,6 +4,8 @@ import { SummaryCards } from '@/components/mat/dashboard/SummaryCards'
 import { RecentMaterials } from '@/components/mat/dashboard/RecentMaterials'
 import { LatestPrices } from '@/components/mat/dashboard/LatestPrices'
 import { QualityAlerts } from '@/components/mat/dashboard/QualityAlerts'
+import Link from 'next/link'
+import styles from '@/components/mat/dashboard/dashboard.module.css'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,11 +64,32 @@ export default async function DashboardPage() {
   const prices = pricesRes.data ?? []
 
   return (
-    <div className="flex h-full flex-col">
+    <div className={styles.page}>
       <Header title="Dashboard" subtitle="ภาพรวมระบบ MAT" />
-      <div className="flex-1 space-y-6 overflow-auto px-6 pb-8">
+      <div className={styles.content}>
+        <section className={styles.hero} aria-labelledby="dashboard-hero-title">
+          <div>
+            <p className={styles.eyebrow}>MATERIAL MASTER</p>
+            <h2 id="dashboard-hero-title" className={styles.heroTitle}>ภาพรวมระบบ MAT</h2>
+            <p className={styles.heroCopy}>
+              <span>วัสดุที่ใช้งาน</span> · {stats.active_materials.toLocaleString()} / {stats.total_materials.toLocaleString()}
+            </p>
+            <div className={styles.actions}>
+              <Link href="/materials" className={styles.primaryAction}>ดูวัสดุทั้งหมด →</Link>
+              <Link href="/materials?status=ACTIVE" className={styles.textLink}><span>วัสดุที่ใช้งาน</span><span aria-hidden="true">&nbsp;→</span></Link>
+            </div>
+          </div>
+          <div className={styles.heroDetail}>
+            <p className={styles.heroDetailLabel}>Data Quality Alerts</p>
+            <p className={styles.heroNumber}>{stats.missing_price.toLocaleString()}</p>
+            <p className={styles.heroDetailLabel}>วัสดุ ACTIVE ที่ไม่มีราคาฐาน</p>
+            {stats.missing_price > 0 && (
+              <Link href="/materials?status=ACTIVE" className={styles.textLink}>ดูรายการ →</Link>
+            )}
+          </div>
+        </section>
         <SummaryCards stats={stats} />
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className={styles.lists}>
           <RecentMaterials materials={recent as any} />
           <LatestPrices prices={prices as any} />
         </div>

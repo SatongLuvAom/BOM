@@ -106,14 +106,15 @@ export function SearchInput({
         value={value}
         onChange={handleChange}
         placeholder={text(placeholder)}
-        className={`w-full rounded-xl border border-stone-300 bg-white py-2.5 pl-11 ${searchOn === 'enter' ? 'pr-24' : 'pr-4'} text-sm font-medium text-slate-800 shadow-sm
+        aria-label={text(placeholder)}
+        className={`min-h-11 w-full rounded-full border border-slate-300 bg-white py-2.5 pl-11 ${searchOn === 'enter' ? 'pr-24' : 'pr-4'} text-sm font-medium text-slate-800
                    placeholder-slate-400 transition-all duration-150
-                   focus:border-slate-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-950/10`}
+                   focus:border-blue-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/15`}
       />
       {searchOn === 'enter' && value !== currentValue && !isPending && (
         <button
           type="submit"
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg bg-slate-950 px-3 py-1.5 text-xs font-bold text-white"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white"
         >
           {t('common.search')}
         </button>

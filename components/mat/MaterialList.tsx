@@ -130,6 +130,7 @@ export function MaterialList({
   const [isPending, startTransition] = useTransition()
 
   const [materialRows, setMaterialRows] = useState(materials)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<Record<string, string>>({})
 
@@ -230,10 +231,10 @@ export function MaterialList({
   }
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="min-w-0 space-y-5" data-i18n-managed>
+      <section className="app-surface p-4 sm:p-5">
         <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center">
-          <div className="min-w-[280px] flex-1">
+          <div className="min-w-0 flex-1">
             <SearchInput
               placeholder={t('materialsPage.list.searchPlaceholder')}
               searchOn="enter"
@@ -242,10 +243,11 @@ export function MaterialList({
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center 2xl:justify-end">
-            <div className="flex min-w-[260px] items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
+            <div className="flex min-h-11 min-w-0 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 sm:min-w-[240px]">
               <span className="shrink-0 text-xs font-bold text-slate-400">{t('materialsPage.list.sort')}</span>
               <select
                 value={sortBy}
+                aria-label={t('materialsPage.list.sort')}
                 onChange={(e) => setSortKey(e.target.value as SortKey)}
                 className="min-w-0 flex-1 rounded-md border-0 bg-transparent py-1 pl-1 pr-7 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-0"
               >
@@ -269,32 +271,35 @@ export function MaterialList({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <select value={searchParams.get('cat_id') ?? ''} onChange={(e) => setParam('cat_id', e.target.value)} className="ops-select">
+        <button type="button" aria-expanded={filtersOpen} aria-controls="material-list-filters" onClick={() => setFiltersOpen((value) => !value)} className="mt-3 flex min-h-11 w-full items-center justify-between rounded-xl bg-slate-50 px-3 text-sm font-medium text-slate-700 sm:hidden">
+          {t('common.filter')}<span aria-hidden="true">{filtersOpen ? '−' : '+'}</span>
+        </button>
+        <div id="material-list-filters" className={`mt-3 grid-cols-1 gap-3 sm:grid sm:grid-cols-2 xl:grid-cols-5 ${filtersOpen ? 'grid' : 'hidden'}`}>
+          <select aria-label={t('terms.category')} value={searchParams.get('cat_id') ?? ''} onChange={(e) => setParam('cat_id', e.target.value)} className="ops-select">
             <option value="">{t('materialsPage.list.allCategories')}</option>
             {categories.map((c) => (
               <option key={c.cat_id} value={c.cat_id}>{c.cat_name_th}</option>
             ))}
           </select>
 
-          <select value={searchParams.get('status') ?? ''} onChange={(e) => setParam('status', e.target.value)} className="ops-select">
+          <select aria-label={t('common.status')} value={searchParams.get('status') ?? ''} onChange={(e) => setParam('status', e.target.value)} className="ops-select">
             {STATUS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
             ))}
           </select>
 
-          <select value={searchParams.get('has_price') ?? ''} onChange={(e) => setParam('has_price', e.target.value)} className="ops-select">
+          <select aria-label={t('materialsPage.list.allPrices')} value={searchParams.get('has_price') ?? ''} onChange={(e) => setParam('has_price', e.target.value)} className="ops-select">
             <option value="">{t('materialsPage.list.allPrices')}</option>
             <option value="yes">{t('materialsPage.list.hasPrice')}</option>
             <option value="missing">{t('materialsPage.missingPrice')}</option>
           </select>
 
-          <select value={searchParams.get('stale_price') ?? ''} onChange={(e) => setParam('stale_price', e.target.value)} className="ops-select">
+          <select aria-label={t('materialsPage.list.allPriceAges')} value={searchParams.get('stale_price') ?? ''} onChange={(e) => setParam('stale_price', e.target.value)} className="ops-select">
             <option value="">{t('materialsPage.list.allPriceAges')}</option>
             <option value="yes">{t('materialsPage.list.priceOlderThan30Days')}</option>
           </select>
 
-          <select value={searchParams.get('supplier_id') ?? ''} onChange={(e) => setParam('supplier_id', e.target.value)} className="ops-select">
+          <select aria-label={t('terms.supplier')} value={searchParams.get('supplier_id') ?? ''} onChange={(e) => setParam('supplier_id', e.target.value)} className="ops-select">
             <option value="">{t('materialsPage.list.allSuppliers')}</option>
             {suppliers.map((supplier) => (
               <option key={supplier.supplier_id} value={supplier.supplier_id}>
@@ -316,10 +321,10 @@ export function MaterialList({
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="app-surface overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div>
-            <h2 className="text-base font-bold text-blue-950">{t('materialsPage.list.title')}</h2>
+            <h2 className="text-base font-semibold text-slate-950">{t('materialsPage.list.title')}</h2>
             <p className="mt-0.5 text-xs font-medium text-slate-500">
               {t('materialsPage.list.summary', {
                 shown: materialRows.length.toLocaleString('th-TH'),
@@ -332,7 +337,7 @@ export function MaterialList({
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={t('materialsPage.list.title')}>
           <table className="data-table min-w-[1180px]">
             <thead>
               <tr>

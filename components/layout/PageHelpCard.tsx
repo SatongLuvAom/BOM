@@ -74,8 +74,8 @@ export function PageHelpCard() {
   }
 
   return (
-    <section className="px-6 pt-4 print:hidden">
-      <div className="rounded-2xl border border-blue-100 bg-white px-4 py-3 shadow-sm">
+    <section className="app-help print:hidden" data-i18n-managed>
+      <div>
         <div className="flex items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-900">
@@ -86,23 +86,25 @@ export function PageHelpCard() {
               </svg>
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-700">
+              <p className="text-[11px] font-semibold text-blue-700">
                 {t('pageHelp.title')}
               </p>
-              <h2 className="truncate text-sm font-bold text-slate-950">{content.title}</h2>
+              <h2 className="text-sm font-semibold text-slate-950">{content.title}</h2>
             </div>
           </div>
           <button
             type="button"
             onClick={toggle}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+            aria-expanded={!collapsed}
+            aria-controls="app-page-help-content"
+            className="min-h-11 shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
             {collapsed ? t('pageHelp.expand') : t('pageHelp.collapse')}
           </button>
         </div>
 
         {!collapsed && (
-          <div className="mt-3 text-sm leading-6 text-slate-600">
+          <div id="app-page-help-content" className="app-help-copy mt-3">
             <p>{content.body}</p>
             {content.steps.length > 0 && (
               <ul className="mt-2 grid gap-1 md:grid-cols-3">

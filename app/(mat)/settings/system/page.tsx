@@ -188,7 +188,7 @@ function CheckRow({ check }: { check: HealthCheck }) {
 
 function HealthPanel({ title, checks }: { title: string; checks: HealthCheck[] }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <section className="app-surface overflow-hidden">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <h2 className="text-sm font-bold text-slate-900">{title}</h2>
         <Badge label={statusLabel(overallStatus(checks))} color={statusColor(overallStatus(checks))} />
@@ -204,7 +204,7 @@ function HealthPanel({ title, checks }: { title: string; checks: HealthCheck[] }
 
 function SummaryCard({ label, value, status }: { label: string; value: number; status: HealthStatus }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="app-surface p-5 sm:p-6">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <div className="mt-3 flex items-end justify-between">
         <p className="text-3xl font-bold text-slate-900">{value}</p>
@@ -225,7 +225,7 @@ const EXPORT_LINKS = [
 
 function BackupExportPanel() {
   return (
-    <section className="mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="app-surface mt-6 p-5 sm:p-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-sm font-bold text-slate-900">Backup & Export</h2>
@@ -254,7 +254,7 @@ function DataQaPanel({ groups }: { groups: SystemQaGroup[] }) {
   const hasError = groups.some((group) => group.issues.some((issue) => issue.severity === 'error'))
 
   return (
-    <section className="mt-6 rounded-lg border border-slate-200 bg-white shadow-sm">
+    <section className="app-surface mt-6">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <div>
           <h2 className="text-sm font-bold text-slate-900">Core Data QA</h2>
@@ -387,7 +387,7 @@ export default async function SystemHealthPage() {
     <div className="flex h-full flex-col">
       <Header title="System Health" subtitle="ตรวจ env, Supabase, storage และ integration ที่จำเป็น" />
 
-      <div className="flex-1 overflow-auto px-6 py-6">
+      <div className="app-page-content flex-1 overflow-auto">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <SummaryCard label="Passed" value={okCount} status="ok" />
           <SummaryCard label="Warnings" value={warnCount} status="warning" />

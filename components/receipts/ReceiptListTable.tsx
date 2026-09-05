@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
+import styles from './receipts.module.css'
 import type { PurchaseReceipt, ReceiptStatus } from '@/types/receipt'
 
 const statusOptions: { value: ReceiptStatus | ''; label: string }[] = [
@@ -56,11 +57,11 @@ export function ReceiptListTable({ receipts }: { receipts: PurchaseReceipt[] }) 
   }
 
   return (
-    <section className="space-y-4">
+    <section className={`${styles.workflow} space-y-4`}>
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_220px]">
           <SearchInput placeholder="ค้นหา supplier / receipt no..." searchOn="enter" minSearchLength={2} />
-          <select value={searchParams.get('status') ?? ''} onChange={(e) => setParam('status', e.target.value)} className="ops-select">
+          <select aria-label="กรองตามสถานะสลิป" value={searchParams.get('status') ?? ''} onChange={(e) => setParam('status', e.target.value)} className="ops-select">
             {statusOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -71,12 +72,12 @@ export function ReceiptListTable({ receipts }: { receipts: PurchaseReceipt[] }) 
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
           {error}
         </div>
       )}
       {isPending && (
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-800">
+        <div role="status" className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-800">
           กำลังอัปเดตรายการ...
         </div>
       )}
@@ -87,17 +88,18 @@ export function ReceiptListTable({ receipts }: { receipts: PurchaseReceipt[] }) 
           <p className="text-xs font-medium text-slate-500">แสดง {rows.length.toLocaleString('th-TH')} รายการในหน้านี้</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table min-w-[980px]">
+          <table className={`data-table ${styles.receiptTable}`}>
+            <caption className="sr-only">รายการสลิปซื้อวัสดุและสถานะการตรวจสอบ</caption>
             <thead>
               <tr>
-                <th>วันที่</th>
-                <th>Supplier</th>
-                <th>เลขที่เอกสาร</th>
-                <th className="text-right">ยอดรวม</th>
-                <th>จำนวนรายการ</th>
-                <th>สถานะ</th>
-                <th>ผู้นำเข้า</th>
-                <th className="text-right">จัดการ</th>
+                <th scope="col">วันที่</th>
+                <th scope="col">Supplier</th>
+                <th scope="col">เลขที่เอกสาร</th>
+                <th scope="col" className="text-right">ยอดรวม</th>
+                <th scope="col">จำนวนรายการ</th>
+                <th scope="col">สถานะ</th>
+                <th scope="col">ผู้นำเข้า</th>
+                <th scope="col" className="text-right">จัดการ</th>
               </tr>
             </thead>
             <tbody>
@@ -110,24 +112,24 @@ export function ReceiptListTable({ receipts }: { receipts: PurchaseReceipt[] }) 
               )}
               {rows.map((receipt) => (
                 <tr key={receipt.id}>
-                  <td className="whitespace-nowrap text-sm font-medium text-slate-600">
+                  <td data-label="วันที่" className="whitespace-nowrap text-sm font-medium text-slate-600">
                     {receipt.receipt_date || '-'}
                   </td>
-                  <td>
+                  <td data-label="Supplier">
                     <p className="font-bold text-slate-900">{receipt.supplier?.supplier_name_th || receipt.supplier_name_raw || '-'}</p>
                     {receipt.supplier_name_raw && receipt.supplier?.supplier_name_th !== receipt.supplier_name_raw && (
                       <p className="text-xs text-slate-400">{receipt.supplier_name_raw}</p>
                     )}
                   </td>
-                  <td className="font-mono text-xs font-semibold text-blue-900">{receipt.receipt_no || '-'}</td>
-                  <td className="text-right font-bold text-slate-900">
+                  <td data-label="เลขที่เอกสาร" className="font-mono text-xs font-semibold text-blue-900">{receipt.receipt_no || '-'}</td>
+                  <td data-label="ยอดรวม" className="text-right font-semibold tabular-nums text-slate-900">
                     {receipt.grand_total == null ? '-' : Number(receipt.grand_total).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="text-sm text-slate-500">{receipt.item_count ?? 0}</td>
-                  <td><ReceiptStatusBadge status={receipt.status} /></td>
-                  <td className="max-w-[150px] truncate text-xs text-slate-400">{receipt.created_by || '-'}</td>
-                  <td>
-                    <div className="flex justify-end gap-2">
+                  <td data-label="จำนวนรายการ" className="text-sm text-slate-500">{receipt.item_count ?? 0}</td>
+                  <td data-label="สถานะ"><ReceiptStatusBadge status={receipt.status} /></td>
+                  <td data-label="ผู้นำเข้า" title={receipt.created_by || undefined} className="max-w-[150px] truncate text-xs text-slate-500">{receipt.created_by || '-'}</td>
+                  <td data-label="จัดการ">
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Link href={`/receipts/${receipt.id}`} className="rounded-lg px-3 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50">
                         ดู / ตรวจสอบต่อ
                       </Link>

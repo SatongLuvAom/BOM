@@ -55,7 +55,7 @@ export function InlineStatusSelect({ materialId, currentStatus }: Props) {
   const { label } = statusLabel(status)
 
   return (
-    <div className="inline-flex flex-col items-start gap-1">
+    <div className="relative inline-flex flex-col items-start gap-1">
       <label className="sr-only" htmlFor={`status-${materialId}`}>
         {t('common.status')}
       </label>

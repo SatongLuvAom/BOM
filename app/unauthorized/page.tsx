@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { UnauthorizedActions } from '@/components/auth/UnauthorizedActions'
 import { createClient } from '@/lib/supabase/server'
+import styles from './unauthorized.module.css'
 
 export default async function UnauthorizedPage() {
   const supabase = await createClient()
@@ -9,29 +10,29 @@ export default async function UnauthorizedPage() {
   } = await supabase.auth.getUser()
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--app-bg)] px-4">
-      <section className="w-full max-w-md rounded-2xl border border-stone-200 bg-[var(--app-surface)] p-8 text-center shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 9v4" />
-            <path d="M12 17h.01" />
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    <main className={styles.page}>
+      <section className={styles.card} aria-labelledby="unauthorized-title">
+        <p className={styles.brand}>BOQ System</p>
+        <div className={styles.icon}>
+          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="5" y="10" width="14" height="11" rx="3" />
+            <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" />
           </svg>
         </div>
-        <h1 className="mt-5 text-2xl font-bold text-slate-950">Unauthorized</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
+        <h1 id="unauthorized-title" className={styles.title}>Unauthorized</h1>
+        <p className={styles.description}>
           บัญชีนี้ยังไม่มีสิทธิ์เข้าใช้งานส่วนนี้ หรือ session หมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง
           หากยังเข้าไม่ได้ให้ติดต่อผู้ดูแลระบบ
         </p>
-        <div className="mt-4 rounded-xl border border-stone-200 bg-white px-4 py-3 text-left text-xs text-slate-600">
+        <div className={styles.session}>
           <p>
-            <span className="font-semibold text-slate-900">Current session:</span>{' '}
+            <span className={styles.sessionLabel}>Current session:</span>{' '}
             {user?.email ?? 'ยังไม่มี session'}
           </p>
         </div>
-        <div className="mt-6 flex justify-center gap-3">
+        <div className={styles.actions}>
           <UnauthorizedActions />
-          <Link href="/login" className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-stone-50">
+          <Link href="/login" className={styles.back}>
             กลับไป Login
           </Link>
         </div>

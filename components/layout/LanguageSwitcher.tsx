@@ -15,10 +15,12 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
   return (
     <div
       className={cn(
-        'inline-flex rounded-xl border border-stone-200 bg-white p-1 shadow-sm',
+        'inline-flex rounded-full bg-slate-100 p-1',
         compact && 'w-full',
       )}
       aria-label={t('language.label')}
+      role="group"
+      data-i18n-managed
     >
       {options.map((option) => {
         const active = locale === option.locale
@@ -27,11 +29,12 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
             key={option.locale}
             type="button"
             onClick={() => setLocale(option.locale)}
+            aria-pressed={active}
             className={cn(
-              'rounded-lg px-3 py-1.5 text-xs font-bold transition',
+              'min-h-9 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors duration-200',
               compact && 'flex-1',
               active
-                ? 'bg-slate-950 text-white shadow-sm'
+                ? 'bg-white text-slate-950 shadow-sm'
                 : 'text-slate-500 hover:bg-stone-100 hover:text-slate-950',
             )}
           >
@@ -42,4 +45,3 @@ export function LanguageSwitcher({ compact = false }: { compact?: boolean }) {
     </div>
   )
 }
-

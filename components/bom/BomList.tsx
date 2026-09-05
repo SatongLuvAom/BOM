@@ -37,7 +37,7 @@ export function BomList({ boms }: { boms: BomTemplate[] }) {
 
   if (boms.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
+      <div className="app-surface px-6 py-16 text-center">
         <p className="text-gray-400 text-sm">ยังไม่มี BOM</p>
         <p className="mt-1 text-gray-300 text-xs">กด "+ สร้าง BOM" เพื่อเพิ่มสูตรงาน</p>
       </div>
@@ -56,9 +56,9 @@ export function BomList({ boms }: { boms: BomTemplate[] }) {
     <div className="space-y-6">
       {Object.entries(grouped).map(([category, items]) => (
         <div key={category}>
-          <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-widest text-gray-400">{category}</h3>
-          <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
-            <table className="w-full border-collapse text-sm">
+          <h3 className="mb-3 px-1 text-sm font-semibold text-slate-600">{category}</h3>
+          <div className="app-surface overflow-x-auto">
+            <table className="data-table">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/80">
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">BOM ID</th>

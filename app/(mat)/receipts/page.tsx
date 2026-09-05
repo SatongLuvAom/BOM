@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Pagination } from '@/components/ui/Pagination'
 import { ReceiptListTable } from '@/components/receipts/ReceiptListTable'
+import styles from '@/components/receipts/receipts.module.css'
 import { RECEIPT_SELECT, isReceiptSchemaMissing } from '@/lib/server/receipt-import'
 import { getPaginationRange } from '@/lib/utils'
 import { buildOrIlikeFilter, buildPostgrestInFilter, normalizeSearchTerm } from '@/lib/supabase/filters'
@@ -83,9 +84,9 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-slate-50">
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4">
+    <div className={`${styles.page} flex flex-col`}>
+      <div className={styles.pageHeader}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-500">
               <span>คลังวัสดุ</span>
@@ -103,7 +104,7 @@ export default async function ReceiptsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="flex w-full flex-1 flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
+      <div className={`${styles.pageContent} flex flex-1 flex-col gap-5`}>
         {schemaError ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-800">
             <h2 className="font-bold">{schemaError}</h2>

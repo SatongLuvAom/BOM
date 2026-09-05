@@ -135,9 +135,9 @@ export function BomTemplateForm({ mode, bom }: Props) {
   const inputCls = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none'
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 p-6">
+    <form onSubmit={handleSubmit} className="app-form space-y-6 p-5 sm:p-8">
       {/* Header */}
-      <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm space-y-4">
+      <div className="app-surface space-y-4 p-5 sm:p-6">
         <h2 className="text-sm font-semibold text-gray-700">ข้อมูล BOM</h2>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
@@ -168,7 +168,7 @@ export function BomTemplateForm({ mode, bom }: Props) {
       </div>
 
       {/* Items */}
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div className="app-surface overflow-hidden">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
           <h2 className="text-sm font-semibold text-gray-700">รายการวัสดุ / แรงงาน <span className="text-xs text-gray-400 font-normal">(ต่อ 1 {unit || 'หน่วย'})</span></h2>
         </div>

@@ -8,6 +8,7 @@ import {
   type ReceiptDuplicateNotice,
 } from '@/lib/receipt-duplicate-response'
 import { routes } from '@/lib/routes'
+import styles from './receipts.module.css'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const SUPPORTED_MIME_TYPES = new Set([
@@ -222,8 +223,8 @@ export function ReceiptCreateDraftForm() {
   const progressIndex = failedStageIndex >= 0 ? failedStageIndex : currentStageIndex
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className={`${styles.workflow} mx-auto max-w-6xl space-y-5`}>
+      <section className={styles.createPanel}>
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div>
             <p className="text-sm font-bold text-blue-700">Step 1</p>
@@ -240,18 +241,22 @@ export function ReceiptCreateDraftForm() {
               }}
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
-              className={`mt-5 flex min-h-72 flex-col items-center justify-center rounded-3xl border-2 border-dashed px-6 py-10 text-center transition ${
+              className={`${styles.dropZone} mt-5 flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed px-5 py-10 text-center transition ${
                 isBusy ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-80' : dragging ? 'cursor-pointer border-blue-500 bg-blue-50' : 'cursor-pointer border-slate-200 bg-slate-50 hover:border-blue-300 hover:bg-blue-50/60'
               }`}
               onClick={() => {
                 if (!isBusy) inputRef.current?.click()
               }}
             >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-950 text-2xl text-white">
+              <div aria-hidden="true" className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-2xl text-[#0071e3] shadow-sm">
                 ↑
               </div>
               <h3 className="mt-4 text-lg font-bold text-blue-950">ลากไฟล์มาวาง หรือเลือกไฟล์</h3>
               <p className="mt-2 text-sm text-slate-500">รองรับ JPG, PNG, PDF ขนาดไม่เกิน 10 MB</p>
+              <button type="button" disabled={isBusy} className="btn-secondary mt-4" onClick={(event) => {
+                event.stopPropagation()
+                inputRef.current?.click()
+              }}>เลือกไฟล์สลิป</button>
               {file && (
                 <div className="mt-5 w-full max-w-lg rounded-2xl border border-blue-100 bg-white px-4 py-3 text-left shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -291,6 +296,7 @@ export function ReceiptCreateDraftForm() {
               <input
                 ref={inputRef}
                 type="file"
+                aria-label="ไฟล์สลิป JPG, PNG หรือ PDF"
                 accept="image/jpeg,image/png,application/pdf"
                 className="sr-only"
                 disabled={isBusy}
@@ -299,7 +305,7 @@ export function ReceiptCreateDraftForm() {
             </div>
           </div>
 
-          <aside className="space-y-4 rounded-3xl border border-blue-100 bg-blue-50 p-5 text-blue-950">
+          <aside className={`${styles.importAside} space-y-4 text-[#1d1d1f]`}>
             <div>
               <p className="text-sm font-bold text-blue-700">Step 2</p>
               <h3 className="mt-1 text-lg font-bold">AI ช่วยอ่านข้อมูล</h3>
@@ -313,7 +319,7 @@ export function ReceiptCreateDraftForm() {
                 หลังอ่านเสร็จ ระบบจะพาไปหน้าตรวจสอบ คุณยังแก้ Supplier, วันที่, ยอดรวม, รายการสินค้า และเลือกวัสดุได้เหมือนเดิม
               </p>
             </div>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600">
               ถ้ายังไม่ต้องการใช้ AI สามารถสร้าง Draft เปล่า แล้วกรอกข้อมูลเองในหน้าตรวจสอบได้
             </div>
             <div className="rounded-2xl border border-white/70 bg-white/80 p-4">
@@ -348,7 +354,7 @@ export function ReceiptCreateDraftForm() {
         </div>
 
         {(error || success) && (
-          <div className={`mt-6 rounded-2xl border px-4 py-3 text-sm font-semibold ${
+          <div role={error ? 'alert' : 'status'} className={`mt-6 rounded-2xl border px-4 py-3 text-sm font-semibold ${
             error ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
           }`}>
             {error ? (
@@ -366,7 +372,7 @@ export function ReceiptCreateDraftForm() {
         )}
 
         <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-end">
-          <div className="text-sm font-semibold text-slate-500 sm:mr-auto">
+          <div role="status" className="text-sm font-semibold text-slate-500 sm:mr-auto">
             {isBusy ? stageText[stage] : file ? 'พร้อมสร้าง Draft' : 'กรุณาเลือกไฟล์สลิปก่อน'}
           </div>
           <button

@@ -117,7 +117,7 @@ export function SupplierForm({ supplier, mode, receiptContext }: SupplierFormPro
   }
 
   return (
-    <form onSubmit={handleSubmit} className="p-6" onKeyDown={(event) => {
+    <form onSubmit={handleSubmit} className="app-form p-5 sm:p-8" onKeyDown={(event) => {
       if (receiptContext && event.key === 'Escape') {
         event.preventDefault()
         if (!saving) receiptContext.onCancel()

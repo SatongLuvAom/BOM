@@ -9,16 +9,13 @@ export default async function MatLayout({ children }: { children: React.ReactNod
 
   return (
     <I18nProvider key={locale} initialLocale={locale}>
-      <div data-i18n-root className="relative h-screen w-screen overflow-hidden bg-[var(--app-bg)] print:block print:h-auto print:w-auto print:overflow-visible print:bg-white">
-        <div className="relative z-10 flex h-full w-full overflow-hidden bg-transparent print:block print:h-auto print:overflow-visible print:bg-white">
-          <div className="print:hidden">
-            <Sidebar />
-          </div>
-          <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--app-shell)] print:overflow-visible">
-            <PageHelpCard />
-            {children}
-          </main>
-        </div>
+      <div data-i18n-root className="app-shell">
+        <a href="#app-content" className="app-skip-link print:hidden" data-i18n-managed>{locale === 'th' ? 'ข้ามไปเนื้อหา' : 'Skip to content'}</a>
+        <Sidebar />
+        <main id="app-content" tabIndex={-1} className="app-main">
+          {children}
+          <PageHelpCard />
+        </main>
         <AiHelper />
       </div>
     </I18nProvider>

@@ -127,15 +127,15 @@ function StatCard({
   const toneClass = statToneClass[tone]
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="app-surface app-lift p-5">
       <div className="flex items-center gap-4">
-        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${toneClass.icon} ${toneClass.iconText}`}>
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${toneClass.icon} ${toneClass.iconText}`}>
           <StatIcon tone={tone} />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-bold text-slate-700">{label}</p>
+          <p className="text-xs font-medium text-slate-500">{label}</p>
           <div className="mt-1 flex items-end gap-2">
-            <p className="text-3xl font-bold leading-none tracking-tight text-blue-950">
+            <p className="text-3xl font-semibold leading-tight tracking-tight text-slate-950">
               {value.toLocaleString('th-TH')}
             </p>
             <span className="pb-1 text-xs font-semibold text-slate-400">{unit}</span>
@@ -230,8 +230,8 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
   const formattedTotal = total.toLocaleString('th-TH')
 
   return (
-    <div data-i18n-managed="true" className="flex min-h-full flex-col bg-slate-50">
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 lg:px-8">
+    <div data-i18n-managed="true" className="flex min-h-full flex-col bg-[var(--app-shell)]">
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 px-5 py-3 backdrop-blur-xl sm:px-8">
         <div className="flex w-full items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-500">
             <span>{t('materialsPage.breadcrumb')}</span>
@@ -244,18 +244,11 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <div className="flex w-full flex-1 flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
-          <StatCard label={t('materialsPage.totalMaterials')} value={total} hint={filteredText} unit={recordUnit} tone="blue" />
-          <StatCard label={t('materialsPage.missingPrice')} value={pageMissingPrice} hint={t('materialsPage.currentPageCount')} unit={recordUnit} tone="orange" />
-          <StatCard label={t('materialsPage.stalePrice')} value={pageStalePrice} hint={t('materialsPage.stalePriceHint')} unit={recordUnit} tone="amber" />
-          <StatCard label={t('materialsPage.ready')} value={pageReady} hint={t('materialsPage.readyHint')} unit={recordUnit} tone="green" />
-        </section>
-
-        <section className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex w-full flex-1 flex-col gap-6 p-5 sm:p-8">
+        <section className="app-enter flex flex-wrap items-end justify-between gap-5 pb-2">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-blue-950">{t('materialsPage.title')}</h1>
-            <p className="mt-1 text-sm font-medium text-slate-500">
+            <h1 className="app-heading">{t('materialsPage.title')}</h1>
+            <p className="mt-2 text-sm text-slate-500">
               {t('materialsPage.totalSummary', { count: formattedTotal })}
             </p>
           </div>
@@ -270,6 +263,13 @@ export default async function MaterialsPage({ searchParams }: PageProps) {
               {t('materialsPage.addMaterial')}
             </Link>
           </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+          <StatCard label={t('materialsPage.totalMaterials')} value={total} hint={filteredText} unit={recordUnit} tone="blue" />
+          <StatCard label={t('materialsPage.missingPrice')} value={pageMissingPrice} hint={t('materialsPage.currentPageCount')} unit={recordUnit} tone="orange" />
+          <StatCard label={t('materialsPage.stalePrice')} value={pageStalePrice} hint={t('materialsPage.stalePriceHint')} unit={recordUnit} tone="amber" />
+          <StatCard label={t('materialsPage.ready')} value={pageReady} hint={t('materialsPage.readyHint')} unit={recordUnit} tone="green" />
         </section>
 
         {search && (

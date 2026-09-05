@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireOwner } from '@/lib/auth/owner'
 import { ReceiptReviewClient } from '@/components/receipts/ReceiptReviewClient'
 import { ReceiptStatusBadge } from '@/components/receipts/ReceiptStatusBadge'
+import styles from '@/components/receipts/receipts.module.css'
 import {
   ReceiptImportError,
   getReceiptById,
@@ -58,8 +59,8 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
     const enrichedItems = await ensureReceiptMaterialCandidatesForReview(supabase, id, owner.id, receipt.supplier_id)
 
     return (
-      <div className="flex min-h-full flex-col bg-slate-50">
-        <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
+      <div className={`${styles.page} flex flex-col`}>
+        <div className={styles.pageHeader}>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-500">
@@ -81,7 +82,7 @@ export default async function ReceiptReviewPage({ params, searchParams }: PagePr
           </div>
         </div>
 
-        <div className="w-full px-4 py-5 sm:px-6 lg:px-8">
+        <div className={styles.pageContent}>
           <ReceiptReviewClient
             initialReceipt={receipt}
             initialItems={enrichedItems as PurchaseReceiptItem[]}

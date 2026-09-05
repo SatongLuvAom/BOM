@@ -36,7 +36,7 @@ export function CategoryList({ categories }: CategoryListProps) {
   }
 
   return (
-    <table className="w-full border-collapse text-sm">
+    <table className="data-table">
       <thead>
         <tr className="border-y border-gray-100 bg-gray-50 text-left">
           <th className="px-6 py-3 font-medium text-gray-500">ID</th>

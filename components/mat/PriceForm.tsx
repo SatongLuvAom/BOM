@@ -111,7 +111,7 @@ export function PriceForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5 p-6">
+    <form onSubmit={handleSubmit} className="app-form space-y-6 p-5 sm:p-8">
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}

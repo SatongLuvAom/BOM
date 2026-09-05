@@ -67,7 +67,7 @@ export function UomList({ uoms, open, onOpenChange, onAdded }: UomListProps) {
 
   return (
     <>
-      <table className="w-full border-collapse text-sm">
+      <div className="app-surface overflow-x-auto"><table className="data-table">
         <thead>
           <tr className="border-y border-gray-100 bg-gray-50 text-left">
             <th className="px-6 py-3 font-medium text-gray-500">รหัส (Code)</th>
@@ -104,7 +104,7 @@ export function UomList({ uoms, open, onOpenChange, onAdded }: UomListProps) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
 
       <Modal open={open} onClose={() => onOpenChange(false)} title="เพิ่มหน่วยนับ">
         <div className="space-y-4">

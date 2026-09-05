@@ -29,23 +29,23 @@ export default async function MaterialCodeSettingsPage() {
         title="Material Code Settings"
         subtitle="Manage CATEGORY-TYPE-SPEC-SEQ rules, prefixes, material types, and sequence groups"
         actions={
-          <div className="flex gap-2" data-i18n-managed>
-            <Link href="/materials/code-cleanup" className="rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-stone-50">
+          <div className="flex flex-wrap gap-2" data-i18n-managed>
+            <Link href="/materials/code-cleanup" className="btn-secondary">
               {text('Code cleanup')}
             </Link>
-            <Link href="/materials" className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+            <Link href="/materials" className="btn-primary">
               {text('Materials')}
             </Link>
           </div>
         }
       />
-      <main className="flex-1 overflow-auto px-6 py-6">
+      <div className="app-page-content flex-1 overflow-auto">
         <MaterialCodeSettingsClient
           categories={categories as any}
           materialTypes={materialTypes as any}
           sequences={sequences as any}
         />
-      </main>
+      </div>
     </div>
   )
 }
